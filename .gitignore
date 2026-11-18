@@ -1,0 +1,10 @@
+node_modules/
+release/
+dist/
+.vite/
+*.log
+.env
+.env.*
+!.env.example
+playtest-descent/
+playtest-bosses/

@@ -1,0 +1,3095 @@
+import { sound } from '../audio/kintsugiAudio';
+import {
+  ABILITIES,
+  AbilityId,
+  BOSS_ARCHETYPES,
+  BossForm,
+  SEALS_PER_AWAKENING,
+  StageBlueprint,
+  formatStageLabel,
+  getStageBlueprint,
+  isBossStage,
+} from './kintsugiData';
+
+export const TABLET_W = 390;
+export const TABLET_H = 660;
+const CRADLE_Y = 596;
+const SEAL_LINE_Y = 552;
+const TURN_DESCENT_Y = 46;
+const BOSS_DESCENT_Y = 34;
+const MAX_PEARLS = 200;
+
+type VesselShape = 'OCTAGON' | 'DIAMOND' | 'HEXAGON' | 'DISC';
+
+interface CrackBranch {
+  pts: Array<{ x: number; y: number }>;
+}
+
+export interface PorcelainVessel {
+  id: number;
+  shape: VesselShape;
+  isVermilion: boolean;
+  isArmored: boolean;
+  anchored?: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  targetY: number;
+  radius: number;
+  hp: number;
+  maxHp: number;
+  hitFlash: number;
+  scalePop: number;
+  cracks: CrackBranch[];
+}
+
+export interface PearlOrb {
+  id: number;
+  x: number;
+  y: number;
+  targetY: number;
+  r: number;
+  bonus: number;
+  phase: number;
+}
+
+export interface BossArmorSegment {
+  index: number;
+  hp: number;
+  maxHp: number;
+  hitFlash: number;
+  scalePop: number;
+}
+
+export interface GuardianEntity {
+  id: number;
+  form: BossForm;
+  title: string;
+  subtitle: string;
+  x: number;
+  y: number;
+  targetY: number;
+  vx: number;
+  coreR: number;
+  armorR: number;
+  hp: number;
+  maxHp: number;
+  rotPrimary: number;
+  rotSecondary: number;
+  breathPhase: number;
+  hitFlash: number;
+  scalePop: number;
+  segments: BossArmorSegment[];
+}
+
+export interface SeirinRing {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  r: number;
+  charges: number;
+  maxCharges: number;
+  phase: number;
+  flash: number;
+}
+
+export interface GoldenPearl {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  bounces: number;
+  splitCount: number;
+  nextSplitAt: number;
+  piercesLeft: number;
+  bonusNextHit: number;
+  ribbon: Array<{ x: number; y: number }>;
+  lastRingId: number;
+}
+
+interface LingeringGoldSeam {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  life: number;
+  maxLife: number;
+  dmgTickTimer: number;
+}
+
+interface GoldLightningArc {
+  pts: Array<{ x: number; y: number }>;
+  life: number;
+  maxLife: number;
+}
+
+interface CeramicShard {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rot: number;
+  vRot: number;
+  size: number;
+  isGold: boolean;
+  isVermilion: boolean;
+  life: number;
+  maxLife: number;
+}
+
+interface GoldSpark {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  isVermilion: boolean;
+}
+
+interface GoldRipple {
+  x: number;
+  y: number;
+  r: number;
+  maxR: number;
+  color: string;
+  alpha: number;
+  lineWidth: number;
+}
+
+interface WhisperCallout {
+  x: number;
+  y: number;
+  vy: number;
+  text: string;
+  color: string;
+  size: number;
+  life: number;
+  maxLife: number;
+}
+
+interface DustMote {
+  x: number;
+  y: number;
+  vy: number;
+  vx: number;
+  r: number;
+  alpha: number;
+  phase: number;
+}
+
+export type EnginePhase =
+  | 'PROLOGUE'
+  | 'AIMING'
+  | 'FLIGHT'
+  | 'TRANSITION'
+  | 'INTERLUDE'
+  | 'SHATTERED';
+
+export interface ActiveAbilityBadge {
+  id: AbilityId;
+  shortCrest: string;
+  rank: number;
+}
+
+export interface KintsugiHudState {
+  phase: EnginePhase;
+  stage: number;
+  stageLabel: string;
+  stageTitle: string;
+  awakeningSeals: number; // 0..2 progress toward next 3-seal Awakening
+  sealsNeeded: number;
+  vesselsIntegrity: number;
+  maxIntegrity: number;
+  hasSlashAbility: boolean;
+  slashesLeft: number;
+  maxSlashes: number;
+  fastForward: boolean;
+  chainCount: number;
+  activePearlCount: number;
+  basePearlCount: number;
+  guardianTitle: string | null;
+  guardianSubtitle: string | null;
+  guardianRatio: number;
+  guardianTurnsLeft: number | null;
+  acquiredBadges: ActiveAbilityBadge[];
+}
+
+export interface KintsugiCallbacks {
+  onStateChange: (hud: KintsugiHudState) => void;
+  onAwakeningReady: (stageCleared: number, maxChain: number) => void;
+  onVesselBroken: (stageReached: number, longestChain: number) => void;
+  onPrologueDismissed: () => void;
+}
+
+export class KintsugiCanvasEngine {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private cb: KintsugiCallbacks;
+  private pearlGlowSprite: HTMLCanvasElement;
+  private coronaGlowSprite: HTMLCanvasElement;
+
+  public phase: EnginePhase = 'PROLOGUE';
+  public stage = 1;
+  public awakeningSeals = 0;
+  private transitionTimer = 0;
+  private currentBlueprint: StageBlueprint = getStageBlueprint(1);
+  public integrity = 3;
+  public maxIntegrity = 3;
+  public fastForward = false;
+
+  public ranks: Record<AbilityId, number> = {
+    pearl_surge: 0,
+    twin_ring: 0,
+    kintsugi_slash: 0,
+    chain_burst: 0,
+    sky_string: 0,
+    piercing_gold: 0,
+    gold_lightning: 0,
+    bounce_split: 0,
+  };
+
+  private collectedOrbPearls = 0;
+  private stageClearBonusPearls = 0;
+
+  // Cradle & Thread State
+  private cradleX = TABLET_W * 0.5;
+  private nextCradleX: number | null = null;
+  private aimAngle = -Math.PI * 0.5;
+  private isDrawingThread = false;
+  private activePointerId: number | null = null;
+  private lastTickBucket = 0;
+
+  // Pearls & Volley State
+  public pearls: GoldenPearl[] = [];
+  private bonusPearlsBuffer: GoldenPearl[] = [];
+  private launchQueue = 0;
+  private launchTotalThisVolley = 6;
+  private launchTimer = 0;
+  private launchDirX = 0;
+  private launchDirY = -1;
+
+  public slashesLeft = 0;
+  public maxSlashes = 0;
+  private slashUsedThisStage = false;
+  private stringBouncesLeft = 0;
+  private killsSinceRecharge = 0;
+  private lightningHitCounter = 0;
+
+  public chainCount = 0;
+  private chainPopScale = 1;
+  public longestChainInRun = 0;
+  private flightElapsed = 0;
+
+  // Entities
+  public vessels: PorcelainVessel[] = [];
+  public orbs: PearlOrb[] = [];
+  public guardian: GuardianEntity | null = null;
+  public rings: SeirinRing[] = [];
+  private seams: LingeringGoldSeam[] = [];
+  private lightningArcs: GoldLightningArc[] = [];
+  private shards: CeramicShard[] = [];
+  private sparks: GoldSpark[] = [];
+  private ripples: GoldRipple[] = [];
+  private callouts: WhisperCallout[] = [];
+  private dust: DustMote[] = [];
+
+  // Screen & Time Aesthetics
+  private hitStopTimer = 0;
+  private slowMoTimer = 0;
+  private shakeTimer = 0;
+  private shakeAmp = 0;
+  private veilAlpha = 0;
+  private veilColor = '#FFF3D1';
+  private chapterBannerTimer = 0;
+
+  private bgImage: HTMLImageElement;
+  private nextId = 1;
+  private timeSec = 0;
+  private rafId = 0;
+
+  constructor(canvas: HTMLCanvasElement, callbacks: KintsugiCallbacks) {
+    this.canvas = canvas;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('2D context unavailable');
+    this.ctx = context;
+    this.cb = callbacks;
+    this.pearlGlowSprite = this.buildPearlGlowSprite();
+    this.coronaGlowSprite = this.buildCoronaGlowSprite();
+
+    this.bgImage = new Image();
+    this.bgImage.src = './assets/kintsugi-bg.webp';
+
+    this.initAmbientGoldDust();
+    this.bindPointer();
+    this.preparePrologue();
+    this.startLoop();
+  }
+
+  private buildPearlGlowSprite(): HTMLCanvasElement {
+    const size = 44;
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const gctx = c.getContext('2d')!;
+    const half = size * 0.5;
+    const grad = gctx.createRadialGradient(half, half, 1.5, half, half, half);
+    grad.addColorStop(0, 'rgba(255, 252, 236, 0.98)');
+    grad.addColorStop(0.24, 'rgba(246, 206, 112, 0.78)');
+    grad.addColorStop(0.55, 'rgba(230, 184, 92, 0.24)');
+    grad.addColorStop(1, 'rgba(230, 184, 92, 0)');
+    gctx.fillStyle = grad;
+    gctx.fillRect(0, 0, size, size);
+    return c;
+  }
+
+  private buildCoronaGlowSprite(): HTMLCanvasElement {
+    const size = 160;
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const gctx = c.getContext('2d')!;
+    const half = size * 0.5;
+    const grad = gctx.createRadialGradient(half, half, 14, half, half, half);
+    grad.addColorStop(0, 'rgba(255, 240, 195, 0.85)');
+    grad.addColorStop(0.32, 'rgba(217, 65, 54, 0.45)');
+    grad.addColorStop(0.65, 'rgba(230, 184, 92, 0.16)');
+    grad.addColorStop(1, 'rgba(230, 184, 92, 0)');
+    gctx.fillStyle = grad;
+    gctx.fillRect(0, 0, size, size);
+    return c;
+  }
+
+  private initAmbientGoldDust(): void {
+    this.dust = [];
+    for (let i = 0; i < 34; i++) {
+      this.dust.push({
+        x: Math.random() * TABLET_W,
+        y: Math.random() * TABLET_H,
+        vx: (Math.random() - 0.5) * 6,
+        vy: -4 - Math.random() * 9,
+        r: 0.7 + Math.random() * 1.4,
+        alpha: 0.15 + Math.random() * 0.45,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  public resizeToStage(maxWidth: number, maxHeight: number): void {
+    const aspect = TABLET_W / TABLET_H;
+    let cssW = maxWidth;
+    let cssH = cssW / aspect;
+    if (cssH > maxHeight) {
+      cssH = maxHeight;
+      cssW = cssH * aspect;
+    }
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    this.canvas.style.width = `${Math.floor(cssW)}px`;
+    this.canvas.style.height = `${Math.floor(cssH)}px`;
+    this.canvas.width = Math.floor(TABLET_W * dpr);
+    this.canvas.height = Math.floor(TABLET_H * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  public toggleFastForward(): void {
+    this.fastForward = !this.fastForward;
+    this.emitHud();
+  }
+
+  public preparePrologue(): void {
+    this.phase = 'PROLOGUE';
+    this.stage = 1;
+    this.awakeningSeals = 0;
+    this.currentBlueprint = getStageBlueprint(1);
+    this.integrity = 3;
+    this.maxIntegrity = 3;
+    this.longestChainInRun = 0;
+    this.chainCount = 0;
+    this.collectedOrbPearls = 0;
+    this.stageClearBonusPearls = 0;
+    this.fastForward = false;
+    this.cradleX = TABLET_W * 0.5;
+    this.aimAngle = -Math.PI * 0.5;
+    this.pearls = [];
+    this.bonusPearlsBuffer = [];
+    this.vessels = [];
+    this.orbs = [];
+    this.guardian = null;
+    this.rings = [];
+    this.seams = [];
+    this.lightningArcs = [];
+    for (const k of Object.keys(this.ranks) as AbilityId[]) {
+      this.ranks[k] = 0;
+    }
+    this.emitHud();
+  }
+
+  public beginExpeditionAndOptionallyFire(fireImmediately = false): void {
+    this.stage = 1;
+    this.awakeningSeals = 0;
+    this.integrity = 3;
+    this.maxIntegrity = 3;
+    this.longestChainInRun = 0;
+    this.collectedOrbPearls = 0;
+    this.stageClearBonusPearls = 0;
+    this.fastForward = false;
+    for (const k of Object.keys(this.ranks) as AbilityId[]) {
+      this.ranks[k] = 0;
+    }
+    this.cradleX = TABLET_W * 0.5;
+    this.setupStage(1);
+    this.cb.onPrologueDismissed();
+    if (fireImmediately) {
+      this.releaseGoldenPearls();
+    }
+  }
+
+  public inscribeAbility(id: AbilityId): void {
+    this.ranks[id] = (this.ranks[id] ?? 0) + 1;
+  }
+
+  public proceedAfterAwakening(): void {
+    this.stage += 1;
+    if (isBossStage(this.stage - 1) && this.integrity < this.maxIntegrity) {
+      this.integrity += 1;
+    }
+    this.setupStage(this.stage);
+  }
+
+  /**
+   * Starts humbly at 6 Golden Pearls on Stage 1, climbing +1 per stage clear,
+   * +1 per Golden Orb collected on board, and +2..+14 gradually via `連珠の契`!
+   */
+  public getBasePearlCount(): number {
+    const surgeTable = [0, 2, 4, 7, 10, 14];
+    const surge = surgeTable[Math.min(surgeTable.length - 1, this.ranks.pearl_surge)] ?? 0;
+    return 6 + this.stageClearBonusPearls + this.collectedOrbPearls + surge;
+  }
+
+  public getCurrentPearlDamage(): number {
+    if (this.ranks.bounce_split >= 5 && this.chainCount >= 80) {
+      return 2;
+    }
+    return 1;
+  }
+
+  private getMaxStringBounces(): number {
+    const table = [0, 2, 4, 7, 11, 16];
+    return table[Math.min(table.length - 1, this.ranks.sky_string)] ?? 0;
+  }
+
+  private getRingChargesPerTurn(): number {
+    const table = [0, 3, 6, 10, 12, 18];
+    return table[Math.min(table.length - 1, this.ranks.twin_ring)] ?? 0;
+  }
+
+  private getPiercesPerPearl(): number {
+    const table = [0, 1, 2, 3, 5, 999];
+    return table[Math.min(table.length - 1, this.ranks.piercing_gold)] ?? 0;
+  }
+
+  // ============================================================================
+  // STAGE & BOSS GENERATOR
+  // ============================================================================
+
+  public setupStage(stageNum: number): void {
+    const bp = getStageBlueprint(stageNum);
+    this.currentBlueprint = bp;
+    this.phase = 'AIMING';
+    this.fastForward = false;
+    this.pearls = [];
+    this.bonusPearlsBuffer = [];
+    this.seams = [];
+    this.lightningArcs = [];
+    this.rings = [];
+    this.vessels = [];
+    this.orbs = [];
+    this.guardian = null;
+    this.chainCount = 0;
+    this.killsSinceRecharge = 0;
+    this.lightningHitCounter = 0;
+    this.slashUsedThisStage = false;
+
+    // `金継ぎの一閃` (`kintsugi_slash`):
+    // Rank 1 = 1 use for the entire stage; Rank 2..4 = 1 use per turn; Rank 5 = 2 uses per turn!
+    const slashRank = this.ranks.kintsugi_slash;
+    this.maxSlashes = slashRank === 0 ? 0 : slashRank >= 5 ? 2 : 1;
+    this.slashesLeft = this.maxSlashes;
+    this.stringBouncesLeft = this.getMaxStringBounces();
+    this.chapterBannerTimer = bp.whisperHint ? 2.9 : 1.9;
+
+    // Spawn `星輪の紋` (`twin_ring`) ONLY if unlocked, with measured split charges!
+    const ringCap = this.getRingChargesPerTurn();
+    if (this.ranks.twin_ring >= 1) {
+      this.rings.push({
+        id: this.nextId++,
+        x: TABLET_W * 0.38,
+        y: 424,
+        vx: 32,
+        r: 22 + Math.min(4, this.ranks.twin_ring),
+        charges: ringCap,
+        maxCharges: ringCap,
+        phase: 0,
+        flash: 0,
+      });
+    }
+    if (this.ranks.twin_ring >= 4) {
+      this.rings.push({
+        id: this.nextId++,
+        x: TABLET_W * 0.65,
+        y: 352,
+        vx: -38,
+        r: 22,
+        charges: ringCap,
+        maxCharges: ringCap,
+        phase: Math.PI * 0.5,
+        flash: 0,
+      });
+    }
+
+    switch (bp.archetype) {
+      case 'TUTORIAL_GATE':
+        this.buildTutorialGate(bp);
+        break;
+      case 'TWIN_WINGS':
+        this.buildTwinWings(bp);
+        break;
+      case 'STEPPED_SHRINE':
+        this.buildSteppedShrine(bp);
+        break;
+      case 'VERMILION_CLUSTER':
+        this.buildVermilionCluster(bp);
+        break;
+      case 'GUARDIAN_BOSS':
+        this.buildGuardianBoss(bp);
+        break;
+      case 'FESTIVAL_SHOWER':
+        this.buildFestivalShower(bp);
+        break;
+      case 'ARMORED_BASTION':
+        this.buildArmoredBastion(bp);
+        break;
+      case 'CLOCKWORK_ORBIT':
+        this.buildClockworkOrbit(bp);
+        break;
+    }
+
+    this.emitHud();
+  }
+
+  private colX(col: number, totalCols = 6): number {
+    const padX = 35;
+    const stepX = (TABLET_W - padX * 2) / (totalCols - 1);
+    return padX + col * stepX;
+  }
+
+  /** Stage 1: Clean White Porcelain Arch + 1 `+1珠` Orb */
+  private buildTutorialGate(bp: StageBlueprint): void {
+    for (const c of [1, 2, 3, 4]) {
+      this.addVessel(this.colX(c), 112, bp.baseHp, 'OCTAGON', false, false, 0);
+    }
+    for (const c of [1, 4]) {
+      this.addVessel(this.colX(c), 164, bp.baseHp - 1, 'HEXAGON', false, false, 0);
+      this.addVessel(this.colX(c), 216, bp.baseHp - 1, 'DIAMOND', false, false, 0);
+    }
+    this.addOrb(TABLET_W * 0.5, 188, 1);
+  }
+
+  /** Stage 2: Twin Funnel Wings + 1 `+1珠` Orb */
+  private buildTwinWings(bp: StageBlueprint): void {
+    for (const c of [0, 1, 2, 3, 4, 5]) {
+      this.addVessel(this.colX(c), 108, bp.baseHp + 1, 'OCTAGON', false, false, 0);
+    }
+    for (const c of [0, 1, 4, 5]) {
+      this.addVessel(this.colX(c), 160, bp.baseHp, 'HEXAGON', false, false, 0);
+    }
+    for (const c of [1, 3, 4]) {
+      this.addVessel(this.colX(c), 212, bp.baseHp - 1, 'DISC', false, false, 0);
+    }
+    this.addOrb(this.colX(2.5), 162, 1);
+  }
+
+  /** Stage 3: Stepped Shrine leading up to 1st Ability Awakening! */
+  private buildSteppedShrine(bp: StageBlueprint): void {
+    for (const c of [1, 2, 3, 4]) {
+      this.addVessel(this.colX(c), 104, bp.baseHp + 2, 'OCTAGON', false, false, 0);
+    }
+    for (const c of [0, 2, 3, 5]) {
+      this.addVessel(this.colX(c), 156, bp.baseHp, 'HEXAGON', false, false, 0);
+    }
+    for (const c of [0, 1, 4, 5]) {
+      this.addVessel(this.colX(c), 208, bp.baseHp - 1, 'DIAMOND', false, false, 0);
+    }
+    this.addOrb(this.colX(1), 156, 1);
+    this.addOrb(this.colX(4), 156, 1);
+  }
+
+  /** Stage 4, 9...: Red Vermilion Core Cluster */
+  private buildVermilionCluster(bp: StageBlueprint): void {
+    for (const c of [1, 2, 3, 4]) {
+      this.addVessel(this.colX(c), 106, bp.baseHp + 2, 'OCTAGON', false, false, 0);
+    }
+    for (const c of [0, 1, 2, 3, 4, 5]) {
+      const isBomb = c === 2 || c === 3;
+      this.addVessel(
+        this.colX(c),
+        158,
+        isBomb ? Math.max(5, Math.round(bp.baseHp * 0.55)) : bp.baseHp,
+        isBomb ? 'DIAMOND' : 'HEXAGON',
+        isBomb,
+        false,
+        0
+      );
+    }
+    for (const c of [1, 2, 3, 4]) {
+      const isBomb = c === 1 || c === 4;
+      this.addVessel(
+        this.colX(c),
+        210,
+        isBomb ? Math.max(5, Math.round(bp.baseHp * 0.55)) : bp.baseHp - 1,
+        isBomb ? 'DIAMOND' : 'DISC',
+        isBomb,
+        false,
+        0
+      );
+    }
+    this.addOrb(this.colX(0), 210, 1);
+  }
+
+  /**
+   * Stage 5, 10, 15...: PROCEDURAL CELESTIAL KARAKURI BOSS!
+   * Features individually destructible Hakuji Porcelain Armor Segments + Sacred Eclipse/Lotus/Armillary Core!
+   */
+  private buildGuardianBoss(bp: StageBlueprint): void {
+    const bossIdx = Math.floor(bp.stage / 5 - 1) % BOSS_ARCHETYPES.length;
+    const arch = BOSS_ARCHETYPES[bossIdx];
+    const coreHp = Math.round(bp.baseHp * (bp.stage === 5 ? 5.0 : 6.4));
+    const segHp = Math.max(7, Math.round(bp.baseHp * 0.85));
+
+    const segments: BossArmorSegment[] = [];
+    for (let i = 0; i < arch.armorCount; i++) {
+      segments.push({
+        index: i,
+        hp: segHp,
+        maxHp: segHp,
+        hitFlash: 0,
+        scalePop: 1,
+      });
+    }
+
+    const startY = 148;
+    this.guardian = {
+      id: this.nextId++,
+      form: arch.form,
+      title: arch.title,
+      subtitle: arch.subtitle,
+      x: TABLET_W * 0.5,
+      y: startY - 22,
+      targetY: startY,
+      vx: 22 + bp.stage * 1.1,
+      coreR: 33,
+      armorR: 65,
+      hp: coreHp,
+      maxHp: coreHp,
+      rotPrimary: 0,
+      rotSecondary: 0,
+      breathPhase: 0,
+      hitFlash: 0,
+      scalePop: 1,
+      segments,
+    };
+
+    // Anchored Upper Pinball Canopy for skillful bank-shots onto the Boss's crown!
+    for (const c of [1, 2, 3, 4]) {
+      this.addVessel(this.colX(c), 68, Math.round(bp.baseHp * 0.72), 'OCTAGON', false, false, 0);
+      this.vessels[this.vessels.length - 1].anchored = true;
+    }
+    // Flanking Vermilion Bombs — detonate them to blast Boss armor!
+    for (const c of [0, 5]) {
+      this.addVessel(this.colX(c), 168, Math.round(bp.baseHp * 0.5), 'DIAMOND', true, false, 0);
+      this.vessels[this.vessels.length - 1].anchored = true;
+    }
+    this.addOrb(this.colX(0), 108, 1);
+    this.addOrb(this.colX(5), 108, 1);
+    sound.playPorcelainShatter(true);
+  }
+
+  public getGuardianTurnsUntilBreach(): number | null {
+    if (!this.guardian) return null;
+    const breachCenterY = SEAL_LINE_Y - this.guardian.armorR;
+    const remPx = breachCenterY - this.guardian.targetY;
+    return Math.max(1, Math.ceil(remPx / BOSS_DESCENT_Y));
+  }
+
+  /** Stage 6, 11...: Cathartic Fragile Domino Shower */
+  private buildFestivalShower(bp: StageBlueprint): void {
+    for (let r = 0; r < 4; r++) {
+      const y = 98 + r * 46;
+      for (let c = 0; c < 6; c++) {
+        if ((r + c) % 5 === 0) continue;
+        const isBomb = (r === 1 && (c === 1 || c === 4)) || (r === 2 && c === 3);
+        this.addVessel(
+          this.colX(c),
+          y,
+          isBomb ? Math.max(4, Math.round(bp.baseHp * 0.6)) : bp.baseHp,
+          isBomb ? 'DIAMOND' : (['DISC', 'HEXAGON', 'OCTAGON'][(r + c) % 3] as VesselShape),
+          isBomb,
+          false,
+          0
+        );
+      }
+    }
+    this.addOrb(this.colX(0), 144, 1);
+    this.addOrb(this.colX(5), 190, 1);
+  }
+
+  /** Stage 7, 12...: Armored Front Bastion (`重器`) */
+  private buildArmoredBastion(bp: StageBlueprint): void {
+    for (const c of [0, 1, 2, 3, 4, 5]) {
+      this.addVessel(this.colX(c), 104, Math.round(bp.baseHp * 0.8), 'HEXAGON', false, false, 0);
+    }
+    for (const c of [1, 2, 3, 4]) {
+      const isBomb = c === 2 || c === 3;
+      this.addVessel(
+        this.colX(c),
+        156,
+        Math.round(bp.baseHp * (isBomb ? 0.55 : 0.85)),
+        isBomb ? 'DIAMOND' : 'DISC',
+        isBomb,
+        false,
+        0
+      );
+    }
+    for (const c of [1, 2, 3, 4]) {
+      this.addVessel(
+        this.colX(c),
+        214,
+        Math.round(bp.baseHp * 1.95),
+        'OCTAGON',
+        false,
+        true,
+        0
+      );
+    }
+    this.addOrb(this.colX(0), 184, 1);
+    this.addOrb(this.colX(5), 184, 1);
+  }
+
+  /** Stage 8, 13...: Horizontally Gliding Clockwork Rows */
+  private buildClockworkOrbit(bp: StageBlueprint): void {
+    for (let r = 0; r < 4; r++) {
+      const y = 104 + r * 50;
+      const driftVx = (r % 2 === 0 ? 1 : -1) * (22 + r * 3.5);
+      const cols = r % 2 === 0 ? [0, 1, 3, 4] : [1, 2, 4, 5];
+      for (const c of cols) {
+        const isBomb = r === 2 && (c === 2 || c === 4);
+        this.addVessel(
+          this.colX(c),
+          y,
+          isBomb ? Math.round(bp.baseHp * 0.55) : bp.baseHp,
+          isBomb ? 'DIAMOND' : 'DISC',
+          isBomb,
+          false,
+          driftVx
+        );
+      }
+    }
+    this.addOrb(TABLET_W * 0.28, 300, 1);
+    this.addOrb(TABLET_W * 0.72, 300, 1);
+  }
+
+  private addVessel(
+    x: number,
+    targetY: number,
+    hp: number,
+    shape: VesselShape,
+    isVermilion: boolean,
+    isArmored: boolean,
+    vx: number
+  ): void {
+    const finalHp = Math.max(3, hp);
+    const radius = isArmored ? 21 : 18.5;
+    this.vessels.push({
+      id: this.nextId++,
+      shape,
+      isVermilion,
+      isArmored,
+      x,
+      y: targetY - 22,
+      vx,
+      targetY,
+      radius,
+      hp: finalHp,
+      maxHp: finalHp,
+      hitFlash: 0,
+      scalePop: 1,
+      cracks: this.generateKintsugiCracks(radius),
+    });
+  }
+
+  private addOrb(x: number, targetY: number, bonus: number): void {
+    this.orbs.push({
+      id: this.nextId++,
+      x,
+      y: targetY - 16,
+      targetY,
+      r: 11.5,
+      bonus,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+
+  private generateKintsugiCracks(r: number): CrackBranch[] {
+    const branches: CrackBranch[] = [];
+    for (let i = 0; i < 4; i++) {
+      const baseAngle = (i / 4) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      const midAngle = baseAngle + (Math.random() - 0.5) * 0.45;
+      branches.push({
+        pts: [
+          { x: 0, y: 0 },
+          { x: Math.cos(midAngle) * r * 0.48, y: Math.sin(midAngle) * r * 0.48 },
+          { x: Math.cos(baseAngle) * r * 0.92, y: Math.sin(baseAngle) * r * 0.92 },
+        ],
+      });
+    }
+    return branches;
+  }
+
+  // ============================================================================
+  // TACTILE INPUT
+  // ============================================================================
+
+  private toLogical(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = TABLET_W / Math.max(1, rect.width);
+    const scaleY = TABLET_H / Math.max(1, rect.height);
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }
+
+  private bindPointer(): void {
+    this.canvas.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      sound.unlock();
+      const pt = this.toLogical(ev.clientX, ev.clientY);
+
+      if (this.phase === 'PROLOGUE' || this.phase === 'AIMING') {
+        this.isDrawingThread = true;
+        this.activePointerId = ev.pointerId;
+        this.canvas.setPointerCapture(ev.pointerId);
+        this.updateThreadAim(pt.x, pt.y);
+      } else if (this.phase === 'FLIGHT' && this.ranks.kintsugi_slash > 0) {
+        this.triggerKintsugiConvergence(pt.x, pt.y);
+      }
+    });
+
+    this.canvas.addEventListener('pointermove', (ev) => {
+      if (!this.isDrawingThread || ev.pointerId !== this.activePointerId) return;
+      const pt = this.toLogical(ev.clientX, ev.clientY);
+      this.updateThreadAim(pt.x, pt.y);
+    });
+
+    const release = (ev: PointerEvent) => {
+      if (!this.isDrawingThread || ev.pointerId !== this.activePointerId) return;
+      this.isDrawingThread = false;
+      this.activePointerId = null;
+
+      if (this.phase === 'PROLOGUE') {
+        this.beginExpeditionAndOptionallyFire(true);
+      } else if (this.phase === 'AIMING') {
+        this.releaseGoldenPearls();
+      }
+    };
+
+    this.canvas.addEventListener('pointerup', release);
+    this.canvas.addEventListener('pointercancel', release);
+  }
+
+  private updateThreadAim(px: number, py: number): void {
+    let dx = px - this.cradleX;
+    let dy = py - CRADLE_Y;
+
+    if (dy > 14) {
+      dx = -dx;
+      dy = -dy;
+    }
+    if (Math.hypot(dx, dy) < 8) {
+      dx = 0;
+      dy = -1;
+    }
+
+    let ang = Math.atan2(dy, dx);
+    const minAng = -Math.PI + 0.16;
+    const maxAng = -0.16;
+    if (ang > 0) {
+      ang = dx >= 0 ? maxAng : minAng;
+    } else {
+      ang = Math.max(minAng, Math.min(maxAng, ang));
+    }
+
+    const bucket = Math.round(ang * 24);
+    if (bucket !== this.lastTickBucket) {
+      this.lastTickBucket = bucket;
+      sound.playThreadTick(bucket);
+    }
+    this.aimAngle = ang;
+  }
+
+  public releaseGoldenPearls(): void {
+    if (this.phase !== 'AIMING') return;
+    this.phase = 'FLIGHT';
+    this.chapterBannerTimer = 0;
+    this.chainCount = 0;
+    this.flightElapsed = 0;
+    this.killsSinceRecharge = 0;
+    this.nextCradleX = null;
+    // Rank 1 `kintsugi_slash`: 1 charge for the entire stage; Rank 2+: refreshes every turn!
+    if (this.ranks.kintsugi_slash >= 2) {
+      this.slashesLeft = this.maxSlashes;
+    } else if (this.ranks.kintsugi_slash === 1) {
+      this.slashesLeft = this.slashUsedThisStage ? 0 : 1;
+    } else {
+      this.slashesLeft = 0;
+    }
+    this.stringBouncesLeft = this.getMaxStringBounces();
+
+    this.launchDirX = Math.cos(this.aimAngle);
+    this.launchDirY = Math.sin(this.aimAngle);
+    this.launchTotalThisVolley = this.getBasePearlCount();
+    this.launchQueue = this.launchTotalThisVolley;
+    this.launchTimer = 0;
+
+    this.spawnSinglePearlFromCradle();
+    this.launchQueue -= 1;
+    this.emitHud();
+  }
+
+  private spawnSinglePearlFromCradle(): void {
+    const speed = 610;
+    const index = this.launchTotalThisVolley - this.launchQueue;
+    sound.playPearlRelease(index);
+
+    const baseAng = Math.atan2(this.launchDirY, this.launchDirX);
+    const jitter = (Math.random() - 0.5) * 0.01;
+    const splitStep = [0, 24, 20, 16, 13, 10][Math.min(5, this.ranks.bounce_split)] ?? 0;
+
+    this.pearls.push({
+      id: this.nextId++,
+      x: this.cradleX,
+      y: CRADLE_Y - 4,
+      vx: Math.cos(baseAng + jitter) * speed,
+      vy: Math.sin(baseAng + jitter) * speed,
+      r: 4.8,
+      bounces: 0,
+      splitCount: 0,
+      nextSplitAt: splitStep,
+      piercesLeft: this.getPiercesPerPearl(),
+      bonusNextHit: 0,
+      ribbon: [],
+      lastRingId: -1,
+    });
+  }
+
+  private spawnEphemeralBurstPearls(cx: number, cy: number, count: number): void {
+    const room = MAX_PEARLS - (this.pearls.length + this.bonusPearlsBuffer.length);
+    const actual = Math.min(count, room);
+    if (actual <= 0) return;
+
+    const spd = 605;
+    for (let i = 0; i < actual; i++) {
+      const ang = -Math.PI * (0.18 + Math.random() * 0.64) + (i % 2 === 0 ? 0 : Math.PI * 0.2);
+      this.bonusPearlsBuffer.push({
+        id: this.nextId++,
+        x: cx,
+        y: cy,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        r: 4.5,
+        bounces: 0,
+        splitCount: 99, // Ephemeral pearls don't recursively self-split
+        nextSplitAt: 0,
+        piercesLeft: this.getPiercesPerPearl(),
+        bonusNextHit: 0,
+        ribbon: [],
+        lastRingId: -1,
+      });
+    }
+  }
+
+  public triggerKintsugiConvergence(tx: number, ty: number): boolean {
+    if (
+      this.phase !== 'FLIGHT' ||
+      this.ranks.kintsugi_slash <= 0 ||
+      this.slashesLeft <= 0 ||
+      this.pearls.length === 0
+    ) {
+      return false;
+    }
+
+    const clampedX = Math.max(22, Math.min(TABLET_W - 22, tx));
+    const clampedY = Math.max(32, Math.min(CRADLE_Y - 34, ty));
+
+    this.slashesLeft -= 1;
+    this.slashUsedThisStage = true;
+    this.hitStopTimer = 0.045;
+    this.slowMoTimer = 0.14;
+    this.shakeTimer = 0.2;
+    this.shakeAmp = 6;
+    this.veilAlpha = 0.25;
+    this.veilColor = '#FFEAB3';
+
+    sound.playKintsugiConvergence();
+
+    this.ripples.push({
+      x: clampedX,
+      y: clampedY,
+      r: 6,
+      maxR: 108,
+      color: '#F2C464',
+      alpha: 0.96,
+      lineWidth: 2.3,
+    });
+
+    const rank = this.ranks.kintsugi_slash;
+    const seamDuration = rank >= 5 ? 1.85 : rank >= 3 ? 1.15 : 0.32;
+    const seamStride = Math.max(1, Math.ceil(this.pearls.length / 40));
+
+    this.pearls.forEach((p, i) => {
+      if (i % seamStride === 0) {
+        this.seams.push({
+          x1: p.x,
+          y1: p.y,
+          x2: clampedX,
+          y2: clampedY,
+          life: seamDuration,
+          maxLife: seamDuration,
+          dmgTickTimer: 0,
+        });
+      }
+
+      const dx = clampedX - p.x;
+      const dy = clampedY - p.y;
+      const baseAng = Math.atan2(dy, dx);
+      const spread = ((i % 9) - 4) * 0.015;
+      const spd = 685;
+      p.vx = Math.cos(baseAng + spread) * spd;
+      p.vy = Math.sin(baseAng + spread) * spd;
+      p.lastRingId = -1;
+    });
+
+    this.spawnWhisper(clampedX, clampedY - 20, '一閃', '#FFF3D1', 16.5);
+    this.emitHud();
+    return true;
+  }
+
+  // ============================================================================
+  // MAIN SIMULATION LOOP
+  // ============================================================================
+
+  private startLoop(): void {
+    let prev = performance.now();
+    const step = (now: number) => {
+      const rawDt = Math.min(0.045, (now - prev) / 1000);
+      prev = now;
+      this.update(rawDt);
+      this.render();
+      this.rafId = requestAnimationFrame(step);
+    };
+    this.rafId = requestAnimationFrame(step);
+  }
+
+  private update(rawDt: number): void {
+    this.timeSec += rawDt;
+
+    if (this.chapterBannerTimer > 0) {
+      this.chapterBannerTimer = Math.max(0, this.chapterBannerTimer - rawDt);
+    }
+    if (this.shakeTimer > 0) this.shakeTimer = Math.max(0, this.shakeTimer - rawDt);
+    if (this.veilAlpha > 0) this.veilAlpha = Math.max(0, this.veilAlpha - rawDt * 1.8);
+    if (this.chainPopScale > 1) {
+      this.chainPopScale = Math.max(1, this.chainPopScale - rawDt * 3.5);
+    }
+
+    for (const m of this.dust) {
+      m.x += m.vx * rawDt + Math.sin(this.timeSec * 0.9 + m.phase) * 0.12;
+      m.y += m.vy * rawDt;
+      if (m.y < -10) {
+        m.y = TABLET_H + 10;
+        m.x = Math.random() * TABLET_W;
+      }
+    }
+
+    // Seamless Non-Modal Stage Transition (`STAGE 浄化 -> Next Stage`)
+    if (this.phase === 'TRANSITION') {
+      this.updateVisualParticles(rawDt);
+      this.transitionTimer -= rawDt;
+      if (this.transitionTimer <= 0) {
+        this.stage += 1;
+        this.setupStage(this.stage);
+      }
+      return;
+    }
+
+    if (this.hitStopTimer > 0) {
+      this.hitStopTimer -= rawDt;
+      this.updateVisualParticles(rawDt * 0.25);
+      return;
+    }
+
+    let timeScale = 1.0;
+    if (this.slowMoTimer > 0) {
+      this.slowMoTimer -= rawDt;
+      timeScale = 0.35;
+    } else if (this.phase === 'FLIGHT') {
+      if (this.fastForward) {
+        timeScale = 2.4;
+      } else if (this.flightElapsed > 6.0) {
+        timeScale = this.flightElapsed > 9.0 ? 2.8 : 1.9;
+      }
+    }
+
+    const dt = rawDt * timeScale;
+    this.updateVisualParticles(dt);
+
+    for (const v of this.vessels) {
+      v.y += (v.targetY - v.y) * Math.min(1, rawDt * 10);
+      if (v.vx !== 0) {
+        v.x += v.vx * dt;
+        if (v.x < 34) {
+          v.x = 34;
+          v.vx = Math.abs(v.vx);
+        } else if (v.x > TABLET_W - 34) {
+          v.x = TABLET_W - 34;
+          v.vx = -Math.abs(v.vx);
+        }
+      }
+      if (v.hitFlash > 0) v.hitFlash = Math.max(0, v.hitFlash - rawDt * 5.5);
+      if (v.scalePop > 1) v.scalePop = Math.max(1, v.scalePop - rawDt * 5.0);
+    }
+
+    for (const o of this.orbs) {
+      o.y += (o.targetY - o.y) * Math.min(1, rawDt * 10);
+      o.phase += rawDt * 3.5;
+    }
+
+    for (const r of this.rings) {
+      r.phase += dt * 1.2;
+      if (r.flash > 0) r.flash = Math.max(0, r.flash - rawDt * 4.2);
+      r.x += r.vx * dt;
+      if (r.x < 68) {
+        r.x = 68;
+        r.vx = Math.abs(r.vx);
+      } else if (r.x > TABLET_W - 68) {
+        r.x = TABLET_W - 68;
+        r.vx = -Math.abs(r.vx);
+      }
+    }
+
+    // Update Procedural Celestial Boss (including smooth turn-by-turn descent!)
+    if (this.guardian) {
+      const g = this.guardian;
+      g.y += (g.targetY - g.y) * Math.min(1, rawDt * 8.5);
+      g.rotPrimary += dt * 0.48;
+      g.rotSecondary -= dt * 0.72;
+      g.breathPhase += dt * 1.35;
+      if (g.hitFlash > 0) g.hitFlash = Math.max(0, g.hitFlash - rawDt * 5.5);
+      if (g.scalePop > 1) g.scalePop = Math.max(1, g.scalePop - rawDt * 4.2);
+      for (const seg of g.segments) {
+        if (seg.hitFlash > 0) seg.hitFlash = Math.max(0, seg.hitFlash - rawDt * 5.5);
+        if (seg.scalePop > 1) seg.scalePop = Math.max(1, seg.scalePop - rawDt * 4.8);
+      }
+
+      g.x += g.vx * dt;
+      const bound = g.armorR + 28;
+      if (g.x < bound) {
+        g.x = bound;
+        g.vx = Math.abs(g.vx);
+      } else if (g.x > TABLET_W - bound) {
+        g.x = TABLET_W - bound;
+        g.vx = -Math.abs(g.vx);
+      }
+    }
+
+    // Rank 3+ `kintsugi_slash`: Lingering Golden Seams
+    if (this.ranks.kintsugi_slash >= 3 && this.seams.length > 0) {
+      for (const s of this.seams) {
+        s.dmgTickTimer -= dt;
+        if (s.dmgTickTimer <= 0) {
+          s.dmgTickTimer = 0.14;
+          const seamDmg = this.ranks.kintsugi_slash >= 5 ? 2 : 1;
+          const snapVessels = [...this.vessels];
+          for (const v of snapVessels) {
+            if (!v || v.hp <= 0) continue;
+            if (this.distPointToSegment(v.x, v.y, s.x1, s.y1, s.x2, s.y2) <= v.radius + 4) {
+              this.strikeVessel(v, seamDmg, false);
+            }
+          }
+          if (
+            this.guardian &&
+            this.distPointToSegment(
+              this.guardian.x,
+              this.guardian.y,
+              s.x1,
+              s.y1,
+              s.x2,
+              s.y2
+            ) <= this.guardian.coreR
+          ) {
+            this.strikeGuardianCore(seamDmg, this.guardian.x, this.guardian.y, false);
+          }
+        }
+      }
+    }
+
+    if (this.phase !== 'FLIGHT') return;
+
+    this.flightElapsed += rawDt;
+
+    if (this.launchQueue > 0) {
+      const interval = Math.max(
+        0.018,
+        Math.min(0.042, 0.72 / Math.max(6, this.launchTotalThisVolley))
+      );
+      this.launchTimer -= dt;
+      while (this.launchTimer <= 0 && this.launchQueue > 0) {
+        this.launchTimer += interval;
+        if (this.pearls.length < MAX_PEARLS) {
+          this.spawnSinglePearlFromCradle();
+        }
+        this.launchQueue -= 1;
+      }
+    }
+
+    const substeps = 5;
+    const subDt = dt / substeps;
+    for (let s = 0; s < substeps; s++) {
+      this.substepPearls(subDt);
+    }
+
+    if (this.bonusPearlsBuffer.length > 0) {
+      const space = Math.max(0, MAX_PEARLS - this.pearls.length);
+      if (space > 0) {
+        this.pearls.push(...this.bonusPearlsBuffer.slice(0, space));
+      }
+      this.bonusPearlsBuffer.length = 0;
+    }
+
+    if (this.vessels.length === 0 && !this.guardian) {
+      for (const o of this.orbs) {
+        this.collectedOrbPearls += o.bonus;
+      }
+      this.orbs = [];
+      this.pearls = [];
+      this.launchQueue = 0;
+      this.concludeStageCleared();
+      return;
+    }
+
+    if (this.pearls.length === 0 && this.launchQueue === 0) {
+      this.onVolleySettled();
+    }
+
+    this.emitHud();
+  }
+
+  private substepPearls(dt: number): void {
+    const newTwins: GoldenPearl[] = [];
+    const baseDmg = this.getCurrentPearlDamage();
+    const splitStep = [0, 24, 20, 16, 13, 10][Math.min(5, this.ranks.bounce_split)] ?? 0;
+    const maxSelfSplits = this.ranks.bounce_split >= 3 ? 2 : this.ranks.bounce_split >= 1 ? 1 : 0;
+
+    for (let i = this.pearls.length - 1; i >= 0; i--) {
+      const p = this.pearls[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+
+      if (
+        p.ribbon.length === 0 ||
+        Math.hypot(
+          p.x - p.ribbon[p.ribbon.length - 1].x,
+          p.y - p.ribbon[p.ribbon.length - 1].y
+        ) > 5.5
+      ) {
+        p.ribbon.push({ x: p.x, y: p.y });
+        if (p.ribbon.length > 8) p.ribbon.shift();
+      }
+
+      let bouncedWall = false;
+      if (p.x - p.r < 14) {
+        p.x = 14 + p.r;
+        p.vx = Math.abs(p.vx);
+        bouncedWall = true;
+      } else if (p.x + p.r > TABLET_W - 14) {
+        p.x = TABLET_W - 14 - p.r;
+        p.vx = -Math.abs(p.vx);
+        bouncedWall = true;
+      }
+      if (p.y - p.r < 14) {
+        p.y = 14 + p.r;
+        p.vy = Math.abs(p.vy);
+        bouncedWall = true;
+      }
+      if (bouncedWall) {
+        p.bounces++;
+      }
+
+      const spd = Math.hypot(p.vx, p.vy);
+      if (spd > 1 && Math.abs(p.vy) < 58) {
+        p.vy = (p.vy >= 0 ? 1 : -1) * 66;
+        const ns = Math.hypot(p.vx, p.vy);
+        p.vx = (p.vx / ns) * spd;
+        p.vy = (p.vy / ns) * spd;
+      }
+
+      // Bottom Cradle / `天球の弦` (`sky_string`)
+      if (p.y > CRADLE_Y + 6) {
+        if (this.stringBouncesLeft > 0) {
+          this.stringBouncesLeft -= 1;
+          p.y = CRADLE_Y + 2;
+          p.vy = -Math.abs(p.vy);
+          this.ripples.push({
+            x: p.x,
+            y: CRADLE_Y + 4,
+            r: 3,
+            maxR: 26,
+            color: '#F2C464',
+            alpha: 0.75,
+            lineWidth: 1.3,
+          });
+          sound.playPorcelainChime(this.chainCount + 2, false);
+          continue;
+        }
+        if (this.nextCradleX === null) {
+          this.nextCradleX = Math.max(44, Math.min(TABLET_W - 44, p.x));
+        }
+        this.pearls.splice(i, 1);
+        continue;
+      }
+
+      // Collectible `+1珠` Golden Pearl Orbs
+      for (let oIdx = this.orbs.length - 1; oIdx >= 0; oIdx--) {
+        const orb = this.orbs[oIdx];
+        const dxO = p.x - orb.x;
+        const dyO = p.y - orb.y;
+        if (dxO * dxO + dyO * dyO <= (orb.r + p.r) * (orb.r + p.r)) {
+          this.collectedOrbPearls += orb.bonus;
+          this.orbs.splice(oIdx, 1);
+          sound.playOrbPickup();
+          this.ripples.push({
+            x: orb.x,
+            y: orb.y,
+            r: 4,
+            maxR: 44,
+            color: '#FFE394',
+            alpha: 0.95,
+            lineWidth: 1.8,
+          });
+          this.spawnWhisper(orb.x, orb.y - 8, `珠 +${orb.bonus}`, '#FFE394', 12.5);
+          this.spawnEphemeralBurstPearls(orb.x, orb.y, orb.bonus);
+        }
+      }
+
+      // `星輪の紋` (`twin_ring`) — Measured split charges!
+      for (let rIdx = 0; rIdx < this.rings.length; rIdx++) {
+        const ring = this.rings[rIdx];
+        if (ring.charges <= 0 || p.lastRingId === ring.id) continue;
+        const dxR = p.x - ring.x;
+        const dyR = p.y - ring.y;
+        if (dxR * dxR + dyR * dyR <= (ring.r + p.r) * (ring.r + p.r)) {
+          p.lastRingId = ring.id;
+          ring.charges -= 1;
+          ring.flash = 1;
+          sound.playAstrolabeTwin();
+
+          if (this.pearls.length + newTwins.length < MAX_PEARLS) {
+            const curSpd = Math.hypot(p.vx, p.vy);
+            const ang = Math.atan2(p.vy, p.vx);
+            p.vx = Math.cos(ang - 0.1) * curSpd;
+            p.vy = Math.sin(ang - 0.1) * curSpd;
+            newTwins.push({
+              id: this.nextId++,
+              x: p.x,
+              y: p.y,
+              vx: Math.cos(ang + 0.1) * curSpd,
+              vy: Math.sin(ang + 0.1) * curSpd,
+              r: p.r,
+              bounces: p.bounces,
+              splitCount: p.splitCount,
+              nextSplitAt: p.nextSplitAt,
+              piercesLeft: p.piercesLeft,
+              bonusNextHit: 0,
+              ribbon: [],
+              lastRingId: ring.id,
+            });
+          }
+        }
+      }
+
+      // Procedural Boss Articulated Armor & True Core Collision!
+      if (this.guardian && this.collidePearlWithBoss(p, baseDmg)) {
+        continue;
+      }
+
+      // Porcelain Vessels Collision
+      for (let vIdx = 0; vIdx < this.vessels.length; vIdx++) {
+        const v = this.vessels[vIdx];
+        if (!v || v.hp <= 0) continue;
+        const dx = p.x - v.x;
+        const dy = p.y - v.y;
+        const hitR = v.radius + p.r;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= hitR * hitR) {
+          const hitDmg = baseDmg + p.bonusNextHit;
+          p.bonusNextHit = 0;
+          const willKill = v.hp <= hitDmg;
+          const shouldPierce = willKill && p.piercesLeft > 0;
+
+          if (!shouldPierce) {
+            const dist = Math.max(0.1, Math.sqrt(d2));
+            const nx = dx / dist;
+            const ny = dy / dist;
+            const curSpd = Math.hypot(p.vx, p.vy);
+            p.x = v.x + nx * (hitR + 0.8);
+            p.y = v.y + ny * (hitR + 0.8);
+            p.vx = nx * curSpd;
+            p.vy = ny * curSpd;
+            p.bounces++;
+          } else {
+            p.piercesLeft -= 1;
+            if (this.ranks.piercing_gold >= 4) {
+              p.bonusNextHit = 2;
+            } else if (this.ranks.piercing_gold >= 3) {
+              p.bonusNextHit = 1;
+            }
+          }
+
+          // `分裂の煌めき`: Controlled self-split
+          if (
+            splitStep > 0 &&
+            p.splitCount < maxSelfSplits &&
+            p.bounces >= p.nextSplitAt &&
+            this.pearls.length + newTwins.length < MAX_PEARLS
+          ) {
+            p.splitCount += 1;
+            p.nextSplitAt = p.bounces + splitStep;
+            const curSpd = Math.hypot(p.vx, p.vy);
+            const bAng = Math.atan2(p.vy, p.vx) + 0.24;
+            newTwins.push({
+              id: this.nextId++,
+              x: p.x,
+              y: p.y,
+              vx: Math.cos(bAng) * curSpd,
+              vy: Math.sin(bAng) * curSpd,
+              r: p.r,
+              bounces: 0,
+              splitCount: maxSelfSplits, // Daughter pearls don't chain-split infinitely
+              nextSplitAt: 999,
+              piercesLeft: p.piercesLeft,
+              bonusNextHit: 0,
+              ribbon: [],
+              lastRingId: p.lastRingId,
+            });
+          }
+
+          this.spawnImpactSparks(p.x, p.y, v.isVermilion);
+          const vid = v.id;
+          const vx = v.x;
+          const vy = v.y;
+          this.strikeVessel(v, hitDmg, v.isVermilion);
+          this.checkGoldLightningProc(vx, vy, vid);
+          break;
+        }
+      }
+    }
+
+    if (newTwins.length > 0) {
+      this.pearls.push(...newTwins);
+    }
+  }
+
+  /**
+   * Articulated Boss Collision:
+   * 1. Checks each intact Porcelain Armor Plate / Blooming Lotus Sword-Petal / Obelisk!
+   * 2. Checks the central True Core (`真核`)!
+   */
+  private collidePearlWithBoss(p: GoldenPearl, baseDmg: number): boolean {
+    const g = this.guardian;
+    if (!g) return false;
+
+    const totalSegs = g.segments.length;
+    const dynamicArmorR =
+      g.form === 'SERAPHIC_LOTUS'
+        ? g.armorR + Math.sin(g.breathPhase) * 10
+        : g.armorR;
+
+    // 1. Check destructible outer Porcelain Armor Segments
+    for (let k = 0; k < totalSegs; k++) {
+      const seg = g.segments[k];
+      if (seg.hp <= 0) continue;
+
+      const ang =
+        (k % 2 === 1 && g.form === 'ARMILLARY_THRONE'
+          ? g.rotSecondary + Math.PI / totalSegs
+          : g.rotPrimary) +
+        (k / totalSegs) * Math.PI * 2;
+      const sx = g.x + Math.cos(ang) * dynamicArmorR;
+      const sy = g.y + Math.sin(ang) * dynamicArmorR;
+      const hitRadius = g.form === 'ECLIPSE_MONOLITH' ? 16.5 : 14.5;
+
+      const dist = Math.hypot(p.x - sx, p.y - sy);
+      if (dist <= hitRadius + p.r) {
+        const nx = (p.x - sx) / Math.max(0.1, dist);
+        const ny = (p.y - sy) / Math.max(0.1, dist);
+        const curSpd = Math.hypot(p.vx, p.vy);
+        p.x = sx + nx * (hitRadius + p.r + 1);
+        p.y = sy + ny * (hitRadius + p.r + 1);
+        p.vx = nx * curSpd;
+        p.vy = ny * curSpd;
+        p.bounces++;
+
+        const hitDmg = baseDmg + p.bonusNextHit;
+        p.bonusNextHit = 0;
+        seg.hp -= hitDmg;
+        seg.hitFlash = 1;
+        seg.scalePop = 1.15;
+
+        this.incrementChain();
+        this.spawnImpactSparks(p.x, p.y, false);
+        sound.playPorcelainChime(this.chainCount, false);
+
+        if (seg.hp <= 0) {
+          // ARMOR SEGMENT SHATTERED! Permanently opens a breach & shocks the True Core!
+          this.burstPorcelainShards(sx, sy, 14, true);
+          this.ripples.push({
+            x: sx,
+            y: sy,
+            r: 5,
+            maxR: 54,
+            color: '#F2C464',
+            alpha: 0.95,
+            lineWidth: 2,
+          });
+          sound.playPorcelainShatter(true);
+          this.spawnWhisper(sx, sy - 8, '装甲破砕', '#FFE394', 11.5);
+          this.spawnEphemeralBurstPearls(sx, sy, 2);
+          const fractureShock = Math.max(8, Math.round(g.maxHp * 0.09));
+          this.strikeGuardianCore(fractureShock, g.x, g.y, false);
+        }
+        this.checkGoldLightningProc(sx, sy, -1);
+        return true;
+      }
+    }
+
+    // 2. Check True Core (`真核`)!
+    const distCore = Math.hypot(p.x - g.x, p.y - g.y);
+    if (distCore <= g.coreR + p.r) {
+      const nx = (p.x - g.x) / Math.max(0.1, distCore);
+      const ny = (p.y - g.y) / Math.max(0.1, distCore);
+      const curSpd = Math.hypot(p.vx, p.vy);
+      p.x = g.x + nx * (g.coreR + p.r + 1.5);
+      p.y = g.y + ny * (g.coreR + p.r + 1.5);
+      p.vx = nx * curSpd;
+      p.vy = ny * curSpd;
+      p.bounces++;
+
+      const hitDmg = baseDmg + p.bonusNextHit;
+      p.bonusNextHit = 0;
+      this.strikeGuardianCore(hitDmg, p.x, p.y, true);
+      this.checkGoldLightningProc(p.x, p.y, -1);
+      return true;
+    }
+
+    return false;
+  }
+
+  private checkGoldLightningProc(originX: number, originY: number, excludeId: number): void {
+    const rank = this.ranks.gold_lightning;
+    if (rank <= 0) return;
+
+    this.lightningHitCounter += 1;
+    const triggerEvery = [999, 16, 14, 12, 10, 8][Math.min(5, rank)];
+    if (this.lightningHitCounter < triggerEvery) return;
+    this.lightningHitCounter = 0;
+
+    const maxTargets = [0, 1, 1, 2, 3, 4][Math.min(5, rank)];
+    const boltDmg = [0, 2, 4, 4, 6, 9][Math.min(5, rank)];
+
+    const candidates = this.vessels
+      .filter((v) => v.hp > 0 && v.id !== excludeId)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - originX, a.y - originY) - Math.hypot(b.x - originX, b.y - originY)
+      )
+      .slice(0, maxTargets);
+
+    if (candidates.length === 0 && !this.guardian) return;
+
+    sound.playGoldLightning();
+    let prevX = originX;
+    let prevY = originY;
+    const pts: Array<{ x: number; y: number }> = [{ x: prevX, y: prevY }];
+
+    for (const tgt of candidates) {
+      const midX = (prevX + tgt.x) * 0.5 + (Math.random() - 0.5) * 18;
+      const midY = (prevY + tgt.y) * 0.5 + (Math.random() - 0.5) * 18;
+      pts.push({ x: midX, y: midY }, { x: tgt.x, y: tgt.y });
+      prevX = tgt.x;
+      prevY = tgt.y;
+      this.strikeVessel(tgt, boltDmg, false);
+    }
+
+    if (candidates.length < maxTargets && this.guardian) {
+      const gx = this.guardian.x;
+      const gy = this.guardian.y;
+      pts.push(
+        { x: (prevX + gx) * 0.5 + (Math.random() - 0.5) * 20, y: (prevY + gy) * 0.5 },
+        { x: gx, y: gy }
+      );
+      this.strikeGuardianCore(boltDmg, gx, gy, false);
+    }
+
+    this.lightningArcs.push({
+      pts,
+      life: 0.24,
+      maxLife: 0.24,
+    });
+  }
+
+  private strikeVessel(v: PorcelainVessel, dmg: number, isVermilionAccent: boolean): void {
+    if (!v || v.hp <= 0) return;
+
+    v.hp -= dmg;
+    v.hitFlash = 1;
+    v.scalePop = 1.15;
+
+    this.incrementChain();
+    sound.playPorcelainChime(this.chainCount, isVermilionAccent);
+
+    if (v.hp <= 0) {
+      const idx = this.vessels.indexOf(v);
+      if (idx < 0) return;
+      const vx = v.x;
+      const vy = v.y;
+      const wasVermilion = v.isVermilion;
+      this.vessels.splice(idx, 1);
+
+      this.burstPorcelainShards(vx, vy, wasVermilion ? 12 : 7, wasVermilion);
+      sound.playPorcelainShatter(wasVermilion);
+
+      // Rank 4+ `kintsugi_slash`: Recharges +1 slash every 8 shattered vessels!
+      if (this.ranks.kintsugi_slash >= 4) {
+        this.killsSinceRecharge += 1;
+        if (this.killsSinceRecharge >= 8) {
+          this.killsSinceRecharge = 0;
+          if (this.slashesLeft < this.maxSlashes + 1) {
+            this.slashesLeft += 1;
+            this.spawnWhisper(vx, vy - 10, '一閃 復', '#F2C464', 11.5);
+          }
+        }
+      }
+
+      if (wasVermilion) {
+        this.hitStopTimer = Math.max(this.hitStopTimer, 0.025);
+        this.spawnEphemeralBurstPearls(vx, vy, 2);
+        const waveDmg = Math.round(6 + this.stage * 1.8);
+        this.unleashKintsugiWave(vx, vy, 114, waveDmg, '#D94136');
+      } else if (this.ranks.chain_burst > 0) {
+        const cbRank = this.ranks.chain_burst;
+        if (cbRank >= 4) {
+          this.spawnEphemeralBurstPearls(vx, vy, cbRank >= 5 ? 2 : 1);
+        }
+        const echoDmg = [0, 1, 2, 4, 6, 9][Math.min(5, cbRank)];
+        const echoR = cbRank >= 3 ? 86 : 70;
+        this.unleashKintsugiWave(vx, vy, echoR, echoDmg, '#F2C464');
+      }
+    }
+  }
+
+  private unleashKintsugiWave(
+    cx: number,
+    cy: number,
+    radius: number,
+    dmg: number,
+    color: string
+  ): void {
+    this.ripples.push({
+      x: cx,
+      y: cy,
+      r: 8,
+      maxR: radius,
+      color,
+      alpha: 0.88,
+      lineWidth: 1.9,
+    });
+    this.shakeTimer = Math.max(this.shakeTimer, 0.12);
+    this.shakeAmp = Math.max(this.shakeAmp, 4);
+
+    if (
+      this.guardian &&
+      Math.hypot(this.guardian.x - cx, this.guardian.y - cy) <= radius + this.guardian.coreR
+    ) {
+      this.strikeGuardianCore(dmg, this.guardian.x, this.guardian.y, false);
+    }
+
+    const targets = [...this.vessels];
+    for (const other of targets) {
+      if (!other || other.hp <= 0) continue;
+      if (Math.hypot(other.x - cx, other.y - cy) <= radius + other.radius * 0.5) {
+        this.strikeVessel(other, dmg, false);
+      }
+    }
+  }
+
+  private strikeGuardianCore(
+    dmg: number,
+    hx: number,
+    hy: number,
+    isDirectCore: boolean
+  ): void {
+    const g = this.guardian;
+    if (!g) return;
+
+    g.hp -= dmg;
+    g.hitFlash = 1;
+    g.scalePop = isDirectCore ? 1.09 : 1.04;
+
+    this.incrementChain();
+    sound.playPorcelainChime(this.chainCount, isDirectCore);
+    this.spawnImpactSparks(hx, hy, true);
+
+    if (g.hp <= 0) {
+      const gx = g.x;
+      const gy = g.y;
+      this.guardian = null;
+      this.vessels = [];
+      this.hitStopTimer = 0.09;
+      this.slowMoTimer = 0.38;
+      this.shakeTimer = 0.36;
+      this.shakeAmp = 8.5;
+      this.veilAlpha = 0.45;
+      this.veilColor = '#FFF3D1';
+
+      this.burstPorcelainShards(gx, gy, 36, true);
+      this.ripples.push({
+        x: gx,
+        y: gy,
+        r: 12,
+        maxR: 220,
+        color: '#F2C464',
+        alpha: 1,
+        lineWidth: 3,
+      });
+      this.ripples.push({
+        x: gx,
+        y: gy,
+        r: 4,
+        maxR: 150,
+        color: '#D94136',
+        alpha: 0.95,
+        lineWidth: 2,
+      });
+      sound.playPorcelainShatter(true);
+    }
+  }
+
+  private incrementChain(): void {
+    this.chainCount += 1;
+    this.chainPopScale = 1.16;
+    if (this.chainCount > this.longestChainInRun) {
+      this.longestChainInRun = this.chainCount;
+    }
+  }
+
+  private onVolleySettled(): void {
+    this.fastForward = false;
+    if (this.nextCradleX !== null) {
+      this.cradleX = this.nextCradleX;
+    }
+
+    if (this.vessels.length === 0 && !this.guardian) {
+      for (const o of this.orbs) this.collectedOrbPearls += o.bonus;
+      this.orbs = [];
+      this.concludeStageCleared();
+      return;
+    }
+
+    let breached = false;
+    let bossBreached = false;
+
+    for (let i = this.vessels.length - 1; i >= 0; i--) {
+      const v = this.vessels[i];
+      if (v.anchored) continue;
+      v.targetY += TURN_DESCENT_Y;
+      if (v.targetY + v.radius * 0.5 >= SEAL_LINE_Y) {
+        breached = true;
+        this.burstPorcelainShards(v.x, v.y, 9, true);
+        this.vessels.splice(i, 1);
+      }
+    }
+
+    for (let i = this.orbs.length - 1; i >= 0; i--) {
+      if (this.guardian) continue;
+      this.orbs[i].targetY += TURN_DESCENT_Y;
+      if (this.orbs[i].targetY >= SEAL_LINE_Y) {
+        this.orbs.splice(i, 1);
+      }
+    }
+
+    // Boss inexorably descends toward the Sacred Seal Line every turn!
+    if (this.guardian) {
+      const g = this.guardian;
+      g.targetY += BOSS_DESCENT_Y;
+      const breachCenterY = SEAL_LINE_Y - g.armorR;
+      if (g.targetY >= breachCenterY) {
+        breached = true;
+        bossBreached = true;
+      }
+    }
+
+    const ringCap = this.getRingChargesPerTurn();
+    for (const r of this.rings) {
+      r.charges = ringCap;
+    }
+
+    if (breached) {
+      this.integrity -= 1;
+      this.shakeTimer = 0.32;
+      this.shakeAmp = 7.5;
+      this.veilAlpha = 0.36;
+      this.veilColor = '#D94136';
+      sound.playPorcelainShatter(true);
+
+      if (this.integrity <= 0) {
+        this.phase = 'SHATTERED';
+        this.emitHud();
+        this.cb.onVesselBroken(this.stage, this.longestChainInRun);
+        return;
+      }
+
+      // If Integrity remains after a Boss breach, the Sacrificial Seal blasts the Boss back 4 steps!
+      if (bossBreached && this.guardian) {
+        const g = this.guardian;
+        g.targetY = SEAL_LINE_Y - g.armorR - BOSS_DESCENT_Y * 4;
+        this.ripples.push({
+          x: g.x,
+          y: SEAL_LINE_Y,
+          r: 14,
+          maxR: 180,
+          color: '#D94136',
+          alpha: 0.95,
+          lineWidth: 2.6,
+        });
+        this.spawnWhisper(g.x, SEAL_LINE_Y - 24, '結界破損 — 反発', '#FF8E82', 14);
+      }
+    } else if (this.guardian) {
+      const turnsLeft = this.getGuardianTurnsUntilBreach();
+      if (turnsLeft === 2) {
+        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '結界まで 残り2手', '#F2C464', 12);
+      } else if (turnsLeft === 1) {
+        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '結界寸前 — 残り1手', '#FF7A6E', 13);
+      }
+    }
+
+    if (this.vessels.length === 0 && !this.guardian) {
+      this.concludeStageCleared();
+      return;
+    }
+
+    this.phase = 'AIMING';
+    if (this.ranks.kintsugi_slash >= 2) {
+      this.slashesLeft = this.maxSlashes;
+    }
+    this.emitHud();
+  }
+
+  /**
+   * Gradual Awakening Cadence:
+   * - Every stage clear grants +1 permanent Golden Pearl!
+   * - Boss victories OR completing 3 Awakening Seals opens the Ability Awakening modal!
+   * - All other stages flow seamlessly into the next constellation with zero modal interruption!
+   */
+  private concludeStageCleared(): void {
+    this.fastForward = false;
+    this.stageClearBonusPearls += 1;
+    sound.playActComplete();
+
+    const bossJustCleared = isBossStage(this.stage);
+    if (!bossJustCleared) {
+      this.awakeningSeals += 1;
+    }
+
+    if (bossJustCleared || this.awakeningSeals >= SEALS_PER_AWAKENING) {
+      this.awakeningSeals = 0;
+      this.phase = 'INTERLUDE';
+      this.emitHud();
+      this.cb.onAwakeningReady(this.stage, this.longestChainInRun);
+    } else {
+      // Smooth seamless flow right into next stage!
+      this.phase = 'TRANSITION';
+      this.transitionTimer = 0.85;
+      this.ripples.push({
+        x: TABLET_W * 0.5,
+        y: TABLET_H * 0.45,
+        r: 16,
+        maxR: 180,
+        color: '#E6B85C',
+        alpha: 0.75,
+        lineWidth: 1.8,
+      });
+      this.spawnWhisper(
+        TABLET_W * 0.5,
+        TABLET_H * 0.44,
+        `${formatStageLabel(this.stage)} 浄化  珠+1`,
+        '#FFF2CC',
+        15
+      );
+      this.emitHud();
+    }
+  }
+
+  // ============================================================================
+  // VISUAL PARTICLES & HELPERS
+  // ============================================================================
+
+  private spawnImpactSparks(x: number, y: number, isVermilion: boolean): void {
+    if (this.sparks.length > 210) return;
+    const count = isVermilion ? 3 : 2;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 45 + Math.random() * 115;
+      this.sparks.push({
+        x,
+        y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        life: 0.2 + Math.random() * 0.16,
+        maxLife: 0.36,
+        isVermilion: isVermilion && i === 0,
+      });
+    }
+  }
+
+  private burstPorcelainShards(
+    x: number,
+    y: number,
+    count: number,
+    includeVermilion: boolean
+  ): void {
+    for (let i = 0; i < count; i++) {
+      if (this.shards.length > 180) break;
+      const ang = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+      const spd = 55 + Math.random() * 165;
+      this.shards.push({
+        x,
+        y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 24,
+        rot: Math.random() * Math.PI * 2,
+        vRot: (Math.random() - 0.5) * 9,
+        size: 3.2 + Math.random() * 5.2,
+        isGold: i % 2 === 0,
+        isVermilion: includeVermilion && i % 4 === 1,
+        life: 0.42 + Math.random() * 0.38,
+        maxLife: 0.8,
+      });
+    }
+  }
+
+  private spawnWhisper(
+    x: number,
+    y: number,
+    text: string,
+    color: string,
+    size: number
+  ): void {
+    this.callouts.push({
+      x,
+      y,
+      vy: -26,
+      text,
+      color,
+      size,
+      life: 0.9,
+      maxLife: 0.9,
+    });
+  }
+
+  private updateVisualParticles(dt: number): void {
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const sp = this.sparks[i];
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+      sp.life -= dt;
+      if (sp.life <= 0) this.sparks.splice(i, 1);
+    }
+
+    for (let i = this.lightningArcs.length - 1; i >= 0; i--) {
+      this.lightningArcs[i].life -= dt;
+      if (this.lightningArcs[i].life <= 0) this.lightningArcs.splice(i, 1);
+    }
+
+    for (let i = this.shards.length - 1; i >= 0; i--) {
+      const s = this.shards[i];
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.vy += 170 * dt;
+      s.rot += s.vRot * dt;
+      s.life -= dt;
+      if (s.life <= 0) this.shards.splice(i, 1);
+    }
+
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      r.r += (r.maxR - r.r) * Math.min(1, dt * 9.0);
+      r.alpha -= dt * 2.2;
+      if (r.alpha <= 0) this.ripples.splice(i, 1);
+    }
+
+    for (let i = this.seams.length - 1; i >= 0; i--) {
+      this.seams[i].life -= dt;
+      if (this.seams[i].life <= 0) this.seams.splice(i, 1);
+    }
+
+    for (let i = this.callouts.length - 1; i >= 0; i--) {
+      const c = this.callouts[i];
+      c.y += c.vy * dt;
+      c.life -= dt;
+      if (c.life <= 0) this.callouts.splice(i, 1);
+    }
+  }
+
+  private distPointToSegment(
+    px: number,
+    py: number,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number
+  ): number {
+    const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+    if (l2 === 0) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
+    return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+  }
+
+  private emitHud(): void {
+    const badges: ActiveAbilityBadge[] = [];
+    for (const def of ABILITIES) {
+      const r = this.ranks[def.id] ?? 0;
+      if (r > 0) {
+        badges.push({ id: def.id, shortCrest: def.shortCrest, rank: r });
+      }
+    }
+
+    this.cb.onStateChange({
+      phase: this.phase,
+      stage: this.stage,
+      stageLabel: formatStageLabel(this.stage),
+      stageTitle: this.currentBlueprint.title,
+      awakeningSeals: this.awakeningSeals,
+      sealsNeeded: SEALS_PER_AWAKENING,
+      vesselsIntegrity: this.integrity,
+      maxIntegrity: this.maxIntegrity,
+      hasSlashAbility: this.ranks.kintsugi_slash > 0,
+      slashesLeft: this.slashesLeft,
+      maxSlashes: this.maxSlashes,
+      fastForward: this.fastForward,
+      chainCount: this.chainCount,
+      activePearlCount: this.pearls.length + this.launchQueue,
+      basePearlCount: this.getBasePearlCount(),
+      guardianTitle: this.guardian ? this.guardian.title : null,
+      guardianSubtitle: this.guardian ? this.guardian.subtitle : null,
+      guardianRatio: this.guardian ? Math.max(0, this.guardian.hp / this.guardian.maxHp) : 0,
+      guardianTurnsLeft: this.getGuardianTurnsUntilBreach(),
+      acquiredBadges: badges,
+    });
+  }
+
+  // ============================================================================
+  // MUSEUM-GRADE URUSHI × HAKUJI × PROCEDURAL BOSS RENDERER
+  // ============================================================================
+
+  private render(): void {
+    const ctx = this.ctx;
+    ctx.save();
+
+    if (this.shakeTimer > 0) {
+      ctx.translate(
+        (Math.random() - 0.5) * this.shakeAmp,
+        (Math.random() - 0.5) * this.shakeAmp
+      );
+    }
+
+    ctx.fillStyle = '#09080C';
+    ctx.fillRect(0, 0, TABLET_W, TABLET_H);
+
+    if (this.bgImage.complete) {
+      ctx.globalAlpha = 0.68;
+      ctx.drawImage(this.bgImage, 0, 0, TABLET_W, TABLET_H);
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.28)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(10, 10, TABLET_W - 20, TABLET_H - 20);
+
+    ctx.save();
+    ctx.translate(TABLET_W * 0.5, TABLET_H * 0.46);
+    ctx.rotate(this.timeSec * (this.chainCount >= 50 ? 0.1 : 0.03));
+    ctx.strokeStyle =
+      this.chainCount >= 60 ? 'rgba(230, 184, 92, 0.18)' : 'rgba(230, 184, 92, 0.08)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.arc(0, 0, 138, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([3, 8]);
+    ctx.beginPath();
+    ctx.arc(0, 0, 154, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    for (const m of this.dust) {
+      ctx.fillStyle = '#E6B85C';
+      ctx.globalAlpha = m.alpha * (0.65 + 0.35 * Math.sin(this.timeSec * 2 + m.phase));
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (this.phase === 'FLIGHT' && this.chainCount >= 4) {
+      ctx.save();
+      ctx.translate(TABLET_W * 0.5, TABLET_H * 0.48);
+      ctx.scale(this.chainPopScale, this.chainPopScale);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle =
+        this.chainCount >= 90
+          ? 'rgba(255, 240, 194, 0.32)'
+          : this.chainCount >= 35
+          ? 'rgba(230, 184, 92, 0.22)'
+          : 'rgba(242, 237, 228, 0.12)';
+      ctx.font = '400 72px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+      ctx.fillText(`${this.chainCount}`, 0, 0);
+      ctx.font = '400 11px "Shippori Mincho", "Hiragino Mincho ProN", serif';
+      ctx.fillText(this.chainCount >= 90 ? '天 球 共 鳴' : '共 鳴', 0, 44);
+      ctx.restore();
+    }
+
+    // Sacred Defense Seal Line (`防衛結界線` — ALWAYS visible, pulses Vermilion when Boss is close!)
+    if (this.phase !== 'PROLOGUE') {
+      const bossTurns = this.getGuardianTurnsUntilBreach();
+      const isUrgent = bossTurns !== null && bossTurns <= 2;
+      const pulse = isUrgent ? 0.55 + 0.35 * Math.sin(this.timeSec * 6.5) : 0.26;
+      ctx.save();
+      ctx.strokeStyle = `rgba(217, 65, 54, ${pulse.toFixed(2)})`;
+      ctx.lineWidth = isUrgent ? 1.4 : 0.9;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(26, SEAL_LINE_Y);
+      ctx.lineTo(TABLET_W - 26, SEAL_LINE_Y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Bottom Horizon `天球の弦` (`sky_string`)
+    if (this.stringBouncesLeft > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#E6B85C';
+      ctx.shadowColor = '#E6B85C';
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(22, CRADLE_Y + 4);
+      ctx.lineTo(TABLET_W - 22, CRADLE_Y + 4);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Collectible `+1珠` Orbs
+    for (const o of this.orbs) {
+      const pulse = 1 + Math.sin(o.phase) * 0.08;
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      ctx.scale(pulse, pulse);
+      ctx.drawImage(this.pearlGlowSprite, -15, -15, 30, 30);
+      ctx.strokeStyle = '#FFE394';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.arc(0, 0, o.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#FFFDF5';
+      ctx.font = '600 9.5px "Shippori Mincho", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`+${o.bonus}珠`, 0, 0.5);
+      ctx.restore();
+    }
+
+    // `星輪の紋` Rings (Shows remaining split charges cleanly!)
+    for (const r of this.rings) {
+      if (r.charges <= 0) continue;
+      ctx.save();
+      ctx.translate(r.x, r.y);
+
+      ctx.save();
+      ctx.rotate(r.phase);
+      ctx.strokeStyle = r.flash > 0 ? '#FFF7DF' : '#E6B85C';
+      ctx.shadowColor = '#E6B85C';
+      ctx.shadowBlur = 7 + r.flash * 12;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(0, 0, r.r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, r.r - 4.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      for (let t = 0; t < 4; t++) {
+        const a = (t * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * (r.r - 6.5), Math.sin(a) * (r.r - 6.5));
+        ctx.lineTo(Math.cos(a) * (r.r + 3.5), Math.sin(a) * (r.r + 3.5));
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      ctx.fillStyle = r.flash > 0 ? '#FFFDF5' : '#F2C464';
+      ctx.font = '600 10px "Shippori Mincho", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`×${r.charges}`, 0, 0.5);
+      ctx.restore();
+    }
+
+    // Porcelain Vessels
+    for (const v of this.vessels) {
+      this.drawPorcelainVessel(ctx, v);
+    }
+
+    // PROCEDURAL ARCHITECTURAL BOSS!
+    if (this.guardian) {
+      this.drawProceduralBoss(ctx, this.guardian);
+    }
+
+    // Lingering Kintsugi Gold Seams
+    for (const s of this.seams) {
+      const alpha = Math.max(0, s.life / s.maxLife);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#F6D379';
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(s.x2, s.y2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Golden Lightning Arcs
+    for (const arc of this.lightningArcs) {
+      if (arc.pts.length < 2) continue;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.max(0, arc.life / arc.maxLife);
+      ctx.strokeStyle = '#FFF5CC';
+      ctx.shadowColor = '#F2C464';
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(arc.pts[0].x, arc.pts[0].y);
+      for (let i = 1; i < arc.pts.length; i++) {
+        ctx.lineTo(arc.pts[i].x, arc.pts[i].y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.phase === 'AIMING' || (this.phase === 'PROLOGUE' && this.isDrawingThread)) {
+      this.drawGoldenAimThread(ctx);
+    }
+
+    this.drawBottomCradle(ctx);
+
+    // Batched Golden Pearls & Additive Sunlight Bloom
+    if (this.pearls.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#E6B85C';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = 0.46;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      for (let i = 0; i < this.pearls.length; i++) {
+        const rib = this.pearls[i].ribbon;
+        if (rib.length < 2) continue;
+        ctx.moveTo(rib[0].x, rib[0].y);
+        for (let k = 1; k < rib.length; k++) {
+          ctx.lineTo(rib[k].x, rib[k].y);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const sprSize = 24;
+      const halfSpr = sprSize * 0.5;
+      for (let i = 0; i < this.pearls.length; i++) {
+        const p = this.pearls[i];
+        ctx.drawImage(this.pearlGlowSprite, p.x - halfSpr, p.y - halfSpr, sprSize, sprSize);
+      }
+      ctx.restore();
+
+      ctx.fillStyle = '#FFFDF5';
+      ctx.beginPath();
+      for (let i = 0; i < this.pearls.length; i++) {
+        const p = this.pearls[i];
+        ctx.moveTo(p.x + p.r * 0.72, p.y);
+        ctx.arc(p.x, p.y, p.r * 0.72, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+
+    // Sparks, Ripples, Shards & Whispers
+    if (this.sparks.length > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < this.sparks.length; i++) {
+        const sp = this.sparks[i];
+        ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+        ctx.strokeStyle = sp.isVermilion ? '#FF5E4D' : '#FFE394';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(sp.x, sp.y);
+        ctx.lineTo(sp.x - sp.vx * 0.035, sp.y - sp.vy * 0.035);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    for (const rp of this.ripples) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, rp.alpha);
+      ctx.strokeStyle = rp.color;
+      ctx.lineWidth = rp.lineWidth;
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (const sh of this.shards) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, sh.life / sh.maxLife);
+      ctx.translate(sh.x, sh.y);
+      ctx.rotate(sh.rot);
+      ctx.fillStyle = sh.isVermilion
+        ? '#D94136'
+        : sh.isGold
+        ? '#E6B85C'
+        : '#EFEAE0';
+      ctx.beginPath();
+      ctx.moveTo(0, -sh.size);
+      ctx.lineTo(sh.size * 0.85, sh.size * 0.5);
+      ctx.lineTo(-sh.size * 0.7, sh.size * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const c of this.callouts) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, c.life / c.maxLife);
+      ctx.font = `500 ${c.size}px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = c.color;
+      ctx.fillText(c.text, c.x, c.y);
+      ctx.restore();
+    }
+
+    if (this.chapterBannerTimer > 0 && this.phase === 'AIMING') {
+      const maxT = this.currentBlueprint.whisperHint ? 2.9 : 1.9;
+      const a =
+        Math.min(1, this.chapterBannerTimer * 1.2) *
+        Math.min(1, (maxT - this.chapterBannerTimer) * 3.5 + 0.2);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(0.95, a));
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#E6B85C';
+      ctx.font = '500 11.5px "Shippori Mincho", "Hiragino Mincho ProN", serif';
+      ctx.fillText(formatStageLabel(this.stage), TABLET_W * 0.5, 480);
+      ctx.fillStyle = '#F2EDE4';
+      ctx.font = '400 18px "Shippori Mincho", "Hiragino Mincho ProN", serif';
+      ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, 503);
+      if (this.currentBlueprint.whisperHint) {
+        ctx.fillStyle = 'rgba(242, 196, 100, 0.88)';
+        ctx.font = '400 11px "Shippori Mincho", "Hiragino Mincho ProN", serif';
+        ctx.fillText(this.currentBlueprint.whisperHint, TABLET_W * 0.5, 524);
+      }
+      ctx.restore();
+    }
+
+    if (this.veilAlpha > 0) {
+      ctx.fillStyle = this.veilColor;
+      ctx.globalAlpha = this.veilAlpha;
+      ctx.fillRect(0, 0, TABLET_W, TABLET_H);
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+  }
+
+  // ============================================================================
+  // 3 BESPOKE PROCEDURAL SACRED KARAKURI BOSS ARCHITECTURES
+  // ============================================================================
+
+  private drawProceduralBoss(ctx: CanvasRenderingContext2D, g: GuardianEntity): void {
+    ctx.save();
+    ctx.translate(g.x, g.y);
+    ctx.scale(g.scalePop, g.scalePop);
+
+    // 1. Ambient Corona Aura Behind Boss
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const auraScale = 1 + Math.sin(g.breathPhase * 1.6) * 0.06 + g.hitFlash * 0.14;
+    const auraSize = 156 * auraScale;
+    ctx.drawImage(this.coronaGlowSprite, -auraSize * 0.5, -auraSize * 0.5, auraSize, auraSize);
+    ctx.restore();
+
+    if (g.form === 'ECLIPSE_MONOLITH') {
+      this.drawBossEclipseMonolith(ctx, g);
+    } else if (g.form === 'SERAPHIC_LOTUS') {
+      this.drawBossSeraphicLotus(ctx, g);
+    } else {
+      this.drawBossArmillaryThrone(ctx, g);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * BOSS I (Stage 5): 『蝕天の機巧 — ECLIPSE SERAPH』
+   * Sweeping 6-Winged 24K Gold Filigree + 6 Faceted Hakuji Greatsword Relics + Tracking Eclipse Eye!
+   */
+  private drawBossEclipseMonolith(ctx: CanvasRenderingContext2D, g: GuardianEntity): void {
+    const wingLift = Math.sin(g.breathPhase * 1.1) * 0.08;
+
+    // A. Sweeping 6-Winged Golden Seraphim Silhouette (`黄金の六翼`)
+    for (const side of [-1, 1]) {
+      for (let w = 0; w < 3; w++) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate((-0.34 + w * 0.34 + wingLift * (w + 1) * 0.5));
+        const len = 118 - w * 14;
+        ctx.beginPath();
+        ctx.moveTo(28, -4);
+        ctx.quadraticCurveTo(len * 0.58, -22, len, -8);
+        ctx.quadraticCurveTo(len * 0.65, 4, 30, 5);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(230, 184, 92, 0.09)';
+        ctx.fill();
+        ctx.strokeStyle = w === 0 ? 'rgba(242, 196, 100, 0.68)' : 'rgba(230, 184, 92, 0.38)';
+        ctx.lineWidth = w === 0 ? 1.3 : 0.9;
+        ctx.stroke();
+
+        // Inner feather vein
+        ctx.beginPath();
+        ctx.moveTo(34, -1);
+        ctx.quadraticCurveTo(len * 0.55, -10, len * 0.88, -6);
+        ctx.strokeStyle = 'rgba(230, 184, 92, 0.28)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // B. Sacred Astrolabe Halo & 4 Long Cardinal Spears
+    ctx.save();
+    ctx.rotate(g.rotSecondary * 0.35);
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.32)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.arc(0, 0, 78, 0, Math.PI * 2);
+    ctx.stroke();
+
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      ctx.save();
+      ctx.rotate(a);
+      ctx.strokeStyle = 'rgba(242, 196, 100, 0.75)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -44);
+      ctx.lineTo(4, -54);
+      ctx.lineTo(0, -96);
+      ctx.lineTo(-4, -54);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // C. Counter-Rotating Golden Octagram Filigree
+    ctx.save();
+    ctx.rotate(g.rotSecondary);
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.5)';
+    ctx.lineWidth = 1.0;
+    for (let sq = 0; sq < 2; sq++) {
+      ctx.save();
+      ctx.rotate((sq * Math.PI) / 4);
+      ctx.strokeRect(-35, -35, 70, 70);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // D. 6 Sculpted Faceted Hakuji Porcelain Greatsword Relics (Individually Destructible!)
+    const total = g.segments.length;
+    for (let k = 0; k < total; k++) {
+      const seg = g.segments[k];
+      if (seg.hp <= 0) continue;
+
+      const ang = g.rotPrimary + (k / total) * Math.PI * 2;
+      const dmgRatio = 1 - Math.max(0, seg.hp / seg.maxHp);
+
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.translate(g.armorR, 0);
+      ctx.scale(seg.scalePop, seg.scalePop);
+
+      // Regal Sculpted Porcelain Shield-Blade oriented tangentially & outward!
+      ctx.beginPath();
+      ctx.moveTo(-13, 0);
+      ctx.lineTo(-4, -18);
+      ctx.lineTo(10, -12);
+      ctx.lineTo(19, 0);
+      ctx.lineTo(10, 12);
+      ctx.lineTo(-4, 18);
+      ctx.closePath();
+
+      const pGrad = ctx.createLinearGradient(-12, -16, 16, 16);
+      if (seg.hitFlash > 0.25) {
+        pGrad.addColorStop(0, '#FFFDF9');
+        pGrad.addColorStop(1, '#FCE6AC');
+      } else {
+        pGrad.addColorStop(0, '#FAF6EE');
+        pGrad.addColorStop(1, '#D5CCB9');
+      }
+      ctx.fillStyle = pGrad;
+      ctx.fill();
+
+      ctx.strokeStyle = dmgRatio > 0.35 ? '#E6B85C' : '#C2B7A3';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // Sculpted golden cross-filigree ridge
+      ctx.strokeStyle = 'rgba(230, 184, 92, 0.72)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(-9, 0);
+      ctx.lineTo(15, 0);
+      ctx.moveTo(1, -12);
+      ctx.lineTo(1, 12);
+      ctx.stroke();
+
+      // Spreading 24K Kintsugi fracture veins when damaged
+      if (dmgRatio > 0.08) {
+        ctx.strokeStyle = '#D94136';
+        ctx.lineWidth = 1.2 + dmgRatio * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(-4, -10);
+        ctx.lineTo(3, 1);
+        ctx.lineTo(11, 8);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // E. Blazing Solar Corona + Tracking Obsidian Eclipse Eye!
+    this.drawSacredEclipseCore(ctx, g);
+  }
+
+  /**
+   * BOSS II (Stage 10): 『八葉の機神 — SERAPHIC LOTUS』
+   * Tall Pointed Buddhist Mandorla Halo (`舟形光背`) + Double-Tier Curved Porcelain Lotus Blades + Dharma Wheel
+   */
+  private drawBossSeraphicLotus(ctx: CanvasRenderingContext2D, g: GuardianEntity): void {
+    const dynamicR = g.armorR + Math.sin(g.breathPhase) * 9;
+
+    // A. Grand Pointed Sacred Mandorla Halo (`黄金の舟形光背`) behind Boss!
+    ctx.save();
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.38)';
+    ctx.fillStyle = 'rgba(217, 65, 54, 0.05)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -108);
+    ctx.quadraticCurveTo(96, -24, 0, 98);
+    ctx.quadraticCurveTo(-96, -24, 0, -108);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, -96);
+    ctx.quadraticCurveTo(80, -20, 0, 86);
+    ctx.quadraticCurveTo(-80, -20, 0, -96);
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.2)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+
+    // B. Inner Golden Sub-Petals (8 filigree petals counter-rotating)
+    ctx.save();
+    ctx.rotate(g.rotSecondary * 0.7);
+    for (let i = 0; i < 8; i++) {
+      ctx.save();
+      ctx.rotate((i * Math.PI) / 4);
+      ctx.strokeStyle = 'rgba(230, 184, 92, 0.45)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(28, 0);
+      ctx.quadraticCurveTo(42, -9, 54, 0);
+      ctx.quadraticCurveTo(42, 9, 28, 0);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // C. 8 Sculpted S-Curved White-Porcelain Lotus Sword-Petals!
+    const total = g.segments.length;
+    for (let k = 0; k < total; k++) {
+      const seg = g.segments[k];
+      if (seg.hp <= 0) continue;
+
+      const ang = g.rotPrimary + (k / total) * Math.PI * 2;
+      const dmgRatio = 1 - Math.max(0, seg.hp / seg.maxHp);
+
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.translate(dynamicR, 0);
+      ctx.scale(seg.scalePop, seg.scalePop);
+
+      ctx.beginPath();
+      ctx.moveTo(-17, 0);
+      ctx.quadraticCurveTo(-3, -14, 24, 0);
+      ctx.quadraticCurveTo(-3, 14, -17, 0);
+      ctx.closePath();
+
+      const lGrad = ctx.createLinearGradient(-16, -12, 22, 12);
+      lGrad.addColorStop(0, seg.hitFlash > 0.25 ? '#FFFDF9' : '#FAF6EE');
+      lGrad.addColorStop(1, seg.hitFlash > 0.25 ? '#FCE6AC' : '#D8CFC0');
+      ctx.fillStyle = lGrad;
+      ctx.fill();
+
+      ctx.strokeStyle = '#E0B458';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // Gold & Vermilion central rib + side veins
+      ctx.strokeStyle = dmgRatio > 0.25 ? '#D94136' : '#C99B3B';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(19, 0);
+      ctx.stroke();
+
+      ctx.fillStyle = '#D94136';
+      ctx.beginPath();
+      ctx.arc(-4, 0, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // D. Sacred Dharma-Eclipse Core
+    this.drawSacredEclipseCore(ctx, g);
+  }
+
+  /**
+   * BOSS III (Stage 15+): 『虚空の天球座 — OPHANIM ARMILLARY THRONE』
+   * Double-Edged 3D Engraved Golden Armillary Rings + 8 Pointed Star-Crystal Prisms + Tracking Seraph Eye!
+   */
+  private drawBossArmillaryThrone(ctx: CanvasRenderingContext2D, g: GuardianEntity): void {
+    // A. 3 Double-Edged Ribbon-Thick 3D Golden Armillary Gimbal Rings!
+    const gimbalRadii = [88, 68, 49];
+    for (let i = 0; i < gimbalRadii.length; i++) {
+      const gr = gimbalRadii[i];
+      const tilt = Math.max(0.22, Math.abs(Math.cos(g.breathPhase * (0.65 + i * 0.2) + i * 1.1)));
+      ctx.save();
+      ctx.rotate(g.rotPrimary * (i % 2 === 0 ? 1 : -1.25) + i * 1.05);
+      ctx.strokeStyle = i === 1 ? 'rgba(217, 65, 54, 0.78)' : 'rgba(242, 196, 100, 0.75)';
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, gr, gr * tilt, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(230, 184, 92, 0.32)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, gr - 4, Math.max(2, (gr - 4) * tilt), 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // B. 8 Sharp Elongated 4-Pointed Star-Crystal Porcelain Prisms (`星晶プリズム`) — Never overlapping!
+    const total = g.segments.length;
+    for (let k = 0; k < total; k++) {
+      const seg = g.segments[k];
+      if (seg.hp <= 0) continue;
+
+      const ang =
+        (k % 2 === 1 ? g.rotSecondary + Math.PI / total : g.rotPrimary) +
+        (k / total) * Math.PI * 2;
+      const mx = Math.cos(ang) * g.armorR;
+      const my = Math.sin(ang) * g.armorR;
+
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(ang);
+      ctx.scale(seg.scalePop, seg.scalePop);
+
+      // Sleek 4-Pointed Sacred Star-Crystal!
+      ctx.beginPath();
+      ctx.moveTo(19, 0);
+      ctx.lineTo(3, -6.5);
+      ctx.lineTo(0, -15);
+      ctx.lineTo(-3, -6.5);
+      ctx.lineTo(-15, 0);
+      ctx.lineTo(-3, 6.5);
+      ctx.lineTo(0, 15);
+      ctx.lineTo(3, 6.5);
+      ctx.closePath();
+
+      ctx.fillStyle = seg.hitFlash > 0.25 ? '#FFFDF9' : '#F6F1E7';
+      ctx.fill();
+      ctx.strokeStyle = '#E6B85C';
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+
+      ctx.fillStyle = '#D94136';
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // C. Tracking Seraphim Eclipse Core
+    this.drawSacredEclipseCore(ctx, g);
+  }
+
+  /**
+   * Shared Regal Centerpiece: Solar Corona + Obsidian Void + 4-Pointed Starburst + Cradle-Tracking Cinnabar Eye!
+   */
+  private drawSacredEclipseCore(ctx: CanvasRenderingContext2D, g: GuardianEntity): void {
+    // 16-Ray Golden & Vermilion Corona
+    ctx.save();
+    ctx.rotate(-g.rotPrimary * 1.3);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const rOuter = i % 2 === 0 ? g.coreR + 12 + Math.sin(g.breathPhase * 3 + i) * 3 : g.coreR + 6;
+      ctx.strokeStyle = i % 2 === 0 ? '#F2C464' : '#D94136';
+      ctx.lineWidth = i % 2 === 0 ? 1.4 : 0.9;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * g.coreR, Math.sin(a) * g.coreR);
+      ctx.lineTo(Math.cos(a) * rOuter, Math.sin(a) * rOuter);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Obsidian Eclipse Void
+    ctx.fillStyle = g.hitFlash > 0.25 ? '#3C221D' : '#06050A';
+    ctx.beginPath();
+    ctx.arc(0, 0, g.coreR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Subtle Tracking Cinnabar-Gold Iris (silently watches the player's pearl cradle!)
+    const lookDx = this.cradleX - g.x;
+    const lookDy = CRADLE_Y - g.y;
+    const lookDist = Math.max(1, Math.hypot(lookDx, lookDy));
+    const eyeX = (lookDx / lookDist) * 3.5;
+    const eyeY = (lookDy / lookDist) * 3.5;
+
+    ctx.save();
+    ctx.translate(eyeX, eyeY);
+    // Faint 4-pointed golden cross-star inside the abyss
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.32)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(-g.coreR + 7, 0);
+    ctx.lineTo(g.coreR - 7, 0);
+    ctx.moveTo(0, -g.coreR + 7);
+    ctx.lineTo(0, g.coreR - 7);
+    ctx.stroke();
+
+    // Glowing Vermilion Diamond Ring
+    ctx.strokeStyle = 'rgba(217, 65, 54, 0.78)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -21);
+    ctx.lineTo(18, 0);
+    ctx.lineTo(0, 21);
+    ctx.lineTo(-18, 0);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    // Outer 24K Gold Diamond-Ring Eclipse Rim
+    ctx.strokeStyle = g.hitFlash > 0.2 ? '#FFFDF5' : '#FFE394';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, g.coreR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Crisp Ceremonial Core HP Numeral
+    ctx.fillStyle = '#FFF7E2';
+    ctx.font = '500 14px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${Math.max(0, g.hp)}`, 0, 1);
+  }
+
+  private drawPorcelainVessel(ctx: CanvasRenderingContext2D, v: PorcelainVessel): void {
+    ctx.save();
+    ctx.translate(v.x, v.y);
+    ctx.scale(v.scalePop, v.scalePop);
+
+    const r = v.radius;
+    const damageRatio = 1 - Math.max(0, v.hp / v.maxHp);
+
+    const grad = ctx.createLinearGradient(-r, -r, r, r);
+    if (v.hitFlash > 0.25) {
+      grad.addColorStop(0, '#FFFDF9');
+      grad.addColorStop(1, '#FCE6AC');
+    } else if (v.isArmored) {
+      grad.addColorStop(0, '#DED7C8');
+      grad.addColorStop(1, '#B8AF9E');
+    } else {
+      grad.addColorStop(0, '#F7F3EB');
+      grad.addColorStop(1, '#DBD2C2');
+    }
+
+    this.traceVesselPath(ctx, v.shape, r);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.strokeStyle = v.isVermilion
+      ? '#D94136'
+      : v.isArmored
+      ? '#D4A243'
+      : damageRatio > 0.4
+      ? '#E6B85C'
+      : 'rgba(180, 168, 148, 0.85)';
+    ctx.lineWidth = v.isArmored ? 2.6 : v.isVermilion ? 1.8 : 1.2;
+    ctx.stroke();
+
+    this.traceVesselPath(ctx, v.shape, r * 0.76);
+    ctx.strokeStyle = v.isArmored
+      ? 'rgba(40, 34, 28, 0.55)'
+      : 'rgba(120, 110, 96, 0.24)';
+    ctx.lineWidth = v.isArmored ? 1.2 : 0.7;
+    ctx.stroke();
+
+    if (damageRatio > 0.04) {
+      ctx.save();
+      this.traceVesselPath(ctx, v.shape, r);
+      ctx.clip();
+      ctx.strokeStyle = '#E6B85C';
+      ctx.lineWidth = 1.1 + damageRatio * 1.2;
+      const activeBranches = Math.ceil(damageRatio * v.cracks.length);
+      for (let b = 0; b < activeBranches; b++) {
+        const br = v.cracks[b];
+        ctx.beginPath();
+        ctx.moveTo(br.pts[0].x, br.pts[0].y);
+        ctx.lineTo(br.pts[1].x, br.pts[1].y);
+        if (damageRatio > 0.42) {
+          ctx.lineTo(br.pts[2].x, br.pts[2].y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    if (v.isVermilion) {
+      ctx.fillStyle = 'rgba(217, 65, 54, 0.18)';
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.52, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = v.isVermilion ? '#B6291F' : '#221E1A';
+    ctx.font = '600 11.5px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${v.hp}`, 0, 0.5);
+
+    ctx.restore();
+  }
+
+  private traceVesselPath(
+    ctx: CanvasRenderingContext2D,
+    shape: VesselShape,
+    r: number
+  ): void {
+    ctx.beginPath();
+    if (shape === 'DISC') {
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      return;
+    }
+    if (shape === 'DIAMOND') {
+      ctx.moveTo(0, -r * 1.1);
+      ctx.lineTo(r * 0.95, 0);
+      ctx.lineTo(0, r * 1.1);
+      ctx.lineTo(-r * 0.95, 0);
+      ctx.closePath();
+      return;
+    }
+    const sides = shape === 'HEXAGON' ? 6 : 8;
+    const offset = shape === 'OCTAGON' ? Math.PI / 8 : Math.PI / 6;
+    for (let i = 0; i < sides; i++) {
+      const a = offset + (i / sides) * Math.PI * 2;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  private drawGoldenAimThread(ctx: CanvasRenderingContext2D): void {
+    let rx = this.cradleX;
+    let ry = CRADLE_Y - 4;
+    let dx = Math.cos(this.aimAngle);
+    let dy = Math.sin(this.aimAngle);
+
+    const pts: Array<{ x: number; y: number }> = [{ x: rx, y: ry }];
+    let bounces = 0;
+    let postVesselSteps = -1;
+    const stepLen = 4.5;
+
+    for (let s = 0; s < 220 && bounces < 2; s++) {
+      rx += dx * stepLen;
+      ry += dy * stepLen;
+
+      if (postVesselSteps >= 0) {
+        postVesselSteps++;
+        if (postVesselSteps >= 22) break;
+      }
+
+      if (rx <= 16) {
+        rx = 16;
+        dx = Math.abs(dx);
+        pts.push({ x: rx, y: ry });
+        bounces++;
+      } else if (rx >= TABLET_W - 16) {
+        rx = TABLET_W - 16;
+        dx = -Math.abs(dx);
+        pts.push({ x: rx, y: ry });
+        bounces++;
+      } else if (ry <= 16) {
+        ry = 16;
+        dy = Math.abs(dy);
+        pts.push({ x: rx, y: ry });
+        bounces++;
+      }
+
+      if (postVesselSteps < 0) {
+        if (
+          this.guardian &&
+          Math.hypot(rx - this.guardian.x, ry - this.guardian.y) <= this.guardian.coreR + 5
+        ) {
+          const d = Math.max(1, Math.hypot(rx - this.guardian.x, ry - this.guardian.y));
+          const nx = (rx - this.guardian.x) / d;
+          const ny = (ry - this.guardian.y) / d;
+          const dot = dx * nx + dy * ny;
+          dx -= 2 * dot * nx;
+          dy -= 2 * dot * ny;
+          pts.push({ x: rx, y: ry });
+          bounces++;
+          postVesselSteps = 0;
+        } else {
+          for (const v of this.vessels) {
+            const d = Math.hypot(rx - v.x, ry - v.y);
+            if (d <= v.radius + 5) {
+              const nx = (rx - v.x) / Math.max(1, d);
+              const ny = (ry - v.y) / Math.max(1, d);
+              const dot = dx * nx + dy * ny;
+              dx -= 2 * dot * nx;
+              dy -= 2 * dot * ny;
+              pts.push({ x: rx, y: ry });
+              bounces++;
+              postVesselSteps = 0;
+              break;
+            }
+          }
+        }
+      }
+    }
+    pts.push({ x: rx, y: ry });
+
+    ctx.save();
+    ctx.strokeStyle = this.isDrawingThread ? '#F2C464' : 'rgba(230, 184, 92, 0.42)';
+    ctx.shadowColor = '#E6B85C';
+    ctx.shadowBlur = this.isDrawingThread ? 10 : 4;
+    ctx.lineWidth = this.isDrawingThread ? 1.8 : 1.1;
+    ctx.setLineDash([5, 5]);
+    ctx.lineDashOffset = -this.timeSec * 34;
+
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    ctx.stroke();
+
+    const firstImpact = pts[Math.min(1, pts.length - 1)];
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(firstImpact.x, firstImpact.y, 4.2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawBottomCradle(ctx: CanvasRenderingContext2D): void {
+    const cx = this.cradleX;
+    const cy = CRADLE_Y;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    ctx.strokeStyle = 'rgba(230, 184, 92, 0.65)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+
+    if (this.phase === 'PROLOGUE' || this.phase === 'AIMING') {
+      const pulse = 1 + Math.sin(this.timeSec * 3.4) * 0.08;
+      ctx.scale(pulse, pulse);
+      ctx.drawImage(this.pearlGlowSprite, -15, -19, 30, 30);
+      ctx.fillStyle = '#FFF8E3';
+      ctx.beginPath();
+      ctx.arc(0, -4, 6.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (this.phase === 'AIMING') {
+        ctx.fillStyle = '#F2C464';
+        ctx.font = '500 11.5px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`×${this.getBasePearlCount()}`, 0, 29);
+      }
+    } else if (this.phase === 'FLIGHT' && this.launchQueue > 0) {
+      ctx.fillStyle = 'rgba(242, 196, 100, 0.78)';
+      ctx.font = '400 10.5px "Shippori Mincho", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`残 ${this.launchQueue}`, 0, 28);
+    }
+    ctx.restore();
+  }
+}
