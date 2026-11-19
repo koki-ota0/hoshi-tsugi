@@ -4,8 +4,11 @@ import {
   AbilityId,
   BOSS_ARCHETYPES,
   BossForm,
+  RunSnapshot,
   SEALS_PER_AWAKENING,
   StageBlueprint,
+  StageClearInfo,
+  emptyRanks,
   formatStageLabel,
   getStageBlueprint,
   isBossStage,
@@ -185,6 +188,7 @@ export type EnginePhase =
   | 'PROLOGUE'
   | 'AIMING'
   | 'FLIGHT'
+  | 'CLEARED'
   | 'TRANSITION'
   | 'INTERLUDE'
   | 'SHATTERED';
@@ -223,6 +227,8 @@ export interface KintsugiCallbacks {
   onAwakeningReady: (stageCleared: number, maxChain: number) => void;
   onVesselBroken: (stageReached: number, longestChain: number) => void;
   onPrologueDismissed: () => void;
+  onStageCleared: (info: StageClearInfo) => void;
+  onRunPersist: (snap: RunSnapshot) => void;
 }
 
 export class KintsugiCanvasEngine {
@@ -241,19 +247,12 @@ export class KintsugiCanvasEngine {
   public maxIntegrity = 3;
   public fastForward = false;
 
-  public ranks: Record<AbilityId, number> = {
-    pearl_surge: 0,
-    twin_ring: 0,
-    kintsugi_slash: 0,
-    chain_burst: 0,
-    sky_string: 0,
-    piercing_gold: 0,
-    gold_lightning: 0,
-    bounce_split: 0,
-  };
+  public ranks: Record<AbilityId, number> = emptyRanks();
 
-  private collectedOrbPearls = 0;
-  private stageClearBonusPearls = 0;
+  public collectedOrbPearls = 0;
+  public stageClearBonusPearls = 0;
+  private pendingAwakening = false;
+  private clearBurstTimer = 0;
 
   // Cradle & Thread State
   private cradleX = TABLET_W * 0.5;
@@ -410,6 +409,7 @@ export class KintsugiCanvasEngine {
     this.chainCount = 0;
     this.collectedOrbPearls = 0;
     this.stageClearBonusPearls = 0;
+    this.pendingAwakening = false;
     this.fastForward = false;
     this.cradleX = TABLET_W * 0.5;
     this.aimAngle = -Math.PI * 0.5;
@@ -421,30 +421,72 @@ export class KintsugiCanvasEngine {
     this.rings = [];
     this.seams = [];
     this.lightningArcs = [];
-    for (const k of Object.keys(this.ranks) as AbilityId[]) {
-      this.ranks[k] = 0;
-    }
+    this.ranks = emptyRanks();
     this.emitHud();
   }
 
   public beginExpeditionAndOptionallyFire(fireImmediately = false): void {
-    this.stage = 1;
+    this.beginRun(1, fireImmediately);
+  }
+
+  public beginRun(startStage = 1, fireImmediately = false): void {
+    this.stage = Math.max(1, startStage);
     this.awakeningSeals = 0;
     this.integrity = 3;
     this.maxIntegrity = 3;
     this.longestChainInRun = 0;
     this.collectedOrbPearls = 0;
-    this.stageClearBonusPearls = 0;
+    this.stageClearBonusPearls = Math.max(0, startStage - 1);
+    this.pendingAwakening = false;
     this.fastForward = false;
-    for (const k of Object.keys(this.ranks) as AbilityId[]) {
-      this.ranks[k] = 0;
-    }
+    this.ranks = emptyRanks();
     this.cradleX = TABLET_W * 0.5;
-    this.setupStage(1);
+    this.setupStage(this.stage);
     this.cb.onPrologueDismissed();
     if (fireImmediately) {
       this.releaseGoldenPearls();
     }
+  }
+
+  public restoreRun(snap: RunSnapshot): void {
+    this.stage = snap.stage;
+    this.integrity = snap.integrity;
+    this.maxIntegrity = snap.maxIntegrity;
+    this.ranks = { ...emptyRanks(), ...snap.ranks };
+    this.collectedOrbPearls = snap.collectedOrbPearls;
+    this.stageClearBonusPearls = snap.stageClearBonusPearls;
+    this.awakeningSeals = snap.awakeningSeals;
+    this.longestChainInRun = snap.longestChainInRun;
+    this.cradleX = snap.cradleX;
+    this.pendingAwakening = false;
+    this.fastForward = false;
+    this.setupStage(this.stage);
+    this.cb.onPrologueDismissed();
+  }
+
+  public exportRun(): RunSnapshot {
+    return {
+      stage: this.stage,
+      integrity: this.integrity,
+      maxIntegrity: this.maxIntegrity,
+      ranks: { ...this.ranks },
+      collectedOrbPearls: this.collectedOrbPearls,
+      stageClearBonusPearls: this.stageClearBonusPearls,
+      awakeningSeals: this.awakeningSeals,
+      longestChainInRun: this.longestChainInRun,
+      cradleX: this.cradleX,
+    };
+  }
+
+  public skipClearHold(): void {
+    if (this.phase === 'CLEARED') {
+      this.transitionTimer = 0;
+    }
+  }
+
+  private persistRun(): void {
+    if (this.phase === 'PROLOGUE' || this.phase === 'SHATTERED') return;
+    this.cb.onRunPersist(this.exportRun());
   }
 
   public inscribeAbility(id: AbilityId): void {
@@ -578,6 +620,7 @@ export class KintsugiCanvasEngine {
     }
 
     this.emitHud();
+    this.persistRun();
   }
 
   private colX(col: number, totalCols = 6): number {
@@ -702,15 +745,16 @@ export class KintsugiCanvasEngine {
       segments,
     };
 
-    // Anchored Upper Pinball Canopy for skillful bank-shots onto the Boss's crown!
+    // Upper canopy — also descends, so the board keeps pressing the shop floor
     for (const c of [1, 2, 3, 4]) {
       this.addVessel(this.colX(c), 68, Math.round(bp.baseHp * 0.72), 'OCTAGON', false, false, 0);
-      this.vessels[this.vessels.length - 1].anchored = true;
     }
-    // Flanking Vermilion Bombs — detonate them to blast Boss armor!
+    // Flanking vermilion — they walk the threshold too
     for (const c of [0, 5]) {
       this.addVessel(this.colX(c), 168, Math.round(bp.baseHp * 0.5), 'DIAMOND', true, false, 0);
-      this.vessels[this.vessels.length - 1].anchored = true;
+    }
+    for (const c of [1, 4]) {
+      this.addVessel(this.colX(c), 236, Math.round(bp.baseHp * 0.62), 'HEXAGON', false, false, 0);
     }
     this.addOrb(this.colX(0), 108, 1);
     this.addOrb(this.colX(5), 108, 1);
@@ -878,11 +922,13 @@ export class KintsugiCanvasEngine {
       sound.unlock();
       const pt = this.toLogical(ev.clientX, ev.clientY);
 
-      if (this.phase === 'PROLOGUE' || this.phase === 'AIMING') {
+      if (this.phase === 'AIMING') {
         this.isDrawingThread = true;
         this.activePointerId = ev.pointerId;
         this.canvas.setPointerCapture(ev.pointerId);
         this.updateThreadAim(pt.x, pt.y);
+      } else if (this.phase === 'CLEARED') {
+        this.skipClearHold();
       } else if (this.phase === 'FLIGHT' && this.ranks.kintsugi_slash > 0) {
         this.triggerKintsugiConvergence(pt.x, pt.y);
       }
@@ -899,9 +945,7 @@ export class KintsugiCanvasEngine {
       this.isDrawingThread = false;
       this.activePointerId = null;
 
-      if (this.phase === 'PROLOGUE') {
-        this.beginExpeditionAndOptionallyFire(true);
-      } else if (this.phase === 'AIMING') {
+      if (this.phase === 'AIMING') {
         this.releaseGoldenPearls();
       }
     };
@@ -1124,13 +1168,12 @@ export class KintsugiCanvasEngine {
       }
     }
 
-    // Seamless Non-Modal Stage Transition (`STAGE 浄化 -> Next Stage`)
-    if (this.phase === 'TRANSITION') {
+    if (this.phase === 'CLEARED' || this.phase === 'TRANSITION') {
       this.updateVisualParticles(rawDt);
       this.transitionTimer -= rawDt;
+      this.clearBurstTimer = Math.max(0, this.clearBurstTimer - rawDt);
       if (this.transitionTimer <= 0) {
-        this.stage += 1;
-        this.setupStage(this.stage);
+        this.finishClearHold();
       }
       return;
     }
@@ -1694,10 +1737,9 @@ export class KintsugiCanvasEngine {
       }
 
       if (wasVermilion) {
-        this.hitStopTimer = Math.max(this.hitStopTimer, 0.025);
-        this.spawnEphemeralBurstPearls(vx, vy, 2);
-        const waveDmg = Math.round(6 + this.stage * 1.8);
-        this.unleashKintsugiWave(vx, vy, 114, waveDmg, '#D94136');
+        this.hitStopTimer = Math.max(this.hitStopTimer, 0.016);
+        const waveDmg = Math.max(2, Math.round(2 + this.stage * 0.28));
+        this.unleashKintsugiWave(vx, vy, 58, waveDmg, '#D94136');
       } else if (this.ranks.chain_burst > 0) {
         const cbRank = this.ranks.chain_burst;
         if (cbRank >= 4) {
@@ -1833,7 +1875,6 @@ export class KintsugiCanvasEngine {
     }
 
     for (let i = this.orbs.length - 1; i >= 0; i--) {
-      if (this.guardian) continue;
       this.orbs[i].targetY += TURN_DESCENT_Y;
       if (this.orbs[i].targetY >= SEAL_LINE_Y) {
         this.orbs.splice(i, 1);
@@ -1905,14 +1946,9 @@ export class KintsugiCanvasEngine {
       this.slashesLeft = this.maxSlashes;
     }
     this.emitHud();
+    this.persistRun();
   }
 
-  /**
-   * Gradual Awakening Cadence:
-   * - Every stage clear grants +1 permanent Golden Pearl!
-   * - Boss victories OR completing 3 Awakening Seals opens the Ability Awakening modal!
-   * - All other stages flow seamlessly into the next constellation with zero modal interruption!
-   */
   private concludeStageCleared(): void {
     this.fastForward = false;
     this.stageClearBonusPearls += 1;
@@ -1922,34 +1958,65 @@ export class KintsugiCanvasEngine {
     if (!bossJustCleared) {
       this.awakeningSeals += 1;
     }
-
-    if (bossJustCleared || this.awakeningSeals >= SEALS_PER_AWAKENING) {
+    this.pendingAwakening = bossJustCleared || this.awakeningSeals >= SEALS_PER_AWAKENING;
+    if (this.pendingAwakening) {
       this.awakeningSeals = 0;
+    }
+
+    this.phase = 'CLEARED';
+    this.transitionTimer = bossJustCleared ? 2.35 : 1.65;
+    this.clearBurstTimer = 0.9;
+    this.shakeTimer = Math.max(this.shakeTimer, 0.22);
+    this.shakeAmp = Math.max(this.shakeAmp, bossJustCleared ? 7 : 4);
+    this.veilAlpha = bossJustCleared ? 0.28 : 0.16;
+    this.veilColor = '#FFF3D1';
+
+    for (let i = 0; i < (bossJustCleared ? 4 : 2); i++) {
+      this.ripples.push({
+        x: TABLET_W * 0.5 + (Math.random() - 0.5) * 40,
+        y: TABLET_H * 0.42 + (Math.random() - 0.5) * 24,
+        r: 10 + i * 6,
+        maxR: 120 + i * 40,
+        color: i % 2 === 0 ? '#E6B85C' : '#F3D89A',
+        alpha: 0.9,
+        lineWidth: 2.2 - i * 0.3,
+      });
+    }
+    this.burstPorcelainShards(TABLET_W * 0.5, TABLET_H * 0.4, bossJustCleared ? 28 : 16, bossJustCleared);
+    for (let i = 0; i < 18; i++) {
+      const ang = (i / 18) * Math.PI * 2;
+      this.sparks.push({
+        x: TABLET_W * 0.5,
+        y: TABLET_H * 0.4,
+        vx: Math.cos(ang) * (70 + Math.random() * 90),
+        vy: Math.sin(ang) * (70 + Math.random() * 90) - 30,
+        life: 0.45 + Math.random() * 0.25,
+        maxLife: 0.7,
+        isVermilion: false,
+      });
+    }
+
+    this.cb.onStageCleared({
+      stage: this.stage,
+      title: this.currentBlueprint.title,
+      isBoss: bossJustCleared,
+      pearlCount: this.getBasePearlCount(),
+      chain: this.chainCount,
+      longestChain: this.longestChainInRun,
+    });
+    this.emitHud();
+  }
+
+  private finishClearHold(): void {
+    if (this.pendingAwakening) {
+      this.pendingAwakening = false;
       this.phase = 'INTERLUDE';
       this.emitHud();
       this.cb.onAwakeningReady(this.stage, this.longestChainInRun);
-    } else {
-      // Smooth seamless flow right into next stage!
-      this.phase = 'TRANSITION';
-      this.transitionTimer = 0.85;
-      this.ripples.push({
-        x: TABLET_W * 0.5,
-        y: TABLET_H * 0.45,
-        r: 16,
-        maxR: 180,
-        color: '#E6B85C',
-        alpha: 0.75,
-        lineWidth: 1.8,
-      });
-      this.spawnWhisper(
-        TABLET_W * 0.5,
-        TABLET_H * 0.44,
-        `${formatStageLabel(this.stage)} を継いだ  珠+1`,
-        '#FFF2CC',
-        15
-      );
-      this.emitHud();
+      return;
     }
+    this.stage += 1;
+    this.setupStage(this.stage);
   }
 
   // ============================================================================
@@ -2398,6 +2465,18 @@ export class KintsugiCanvasEngine {
       ctx.textAlign = 'center';
       ctx.fillStyle = c.color;
       ctx.fillText(c.text, c.x, c.y);
+      ctx.restore();
+    }
+
+    if (this.phase === 'CLEARED') {
+      const pop = Math.min(1, 1.2 - this.transitionTimer * 0.35);
+      ctx.save();
+      ctx.globalAlpha = 0.28 * Math.min(1, pop);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#F3D89A';
+      ctx.font = '600 92px "Klee One", "Hiragino Maru Gothic ProN", serif';
+      ctx.fillText('継', TABLET_W * 0.5, TABLET_H * 0.36);
       ctx.restore();
     }
 

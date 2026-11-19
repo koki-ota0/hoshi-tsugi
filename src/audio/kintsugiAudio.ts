@@ -285,12 +285,31 @@ class KintsugiAudioEngine {
       const g = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(hz, t);
-      g.gain.setValueAtTime(0.065, t);
+      g.gain.setValueAtTime(0.07, t);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
       osc.connect(g);
       g.connect(ctx.destination);
       osc.start(t);
       osc.stop(t + 0.9);
+    });
+  }
+
+  public playRecordBreak(): void {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [392.0, 523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((hz, i) => {
+      const t = now + i * 0.05;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(hz, t);
+      g.gain.setValueAtTime(0.08, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.75);
     });
   }
 }

@@ -314,27 +314,75 @@ export function formatStageLabel(stage: number): string {
 
 export interface KintsugiRecord {
   highestStage: number;
+  highestCleared: number;
   longestResonance: number;
   soundOn: boolean;
+  totalClears: number;
+  runsPlayed: number;
 }
 
-const STORAGE_KEY = 'hoshitsugi_kintsugi_record_v3';
+export interface RunSnapshot {
+  stage: number;
+  integrity: number;
+  maxIntegrity: number;
+  ranks: Record<AbilityId, number>;
+  collectedOrbPearls: number;
+  stageClearBonusPearls: number;
+  awakeningSeals: number;
+  longestChainInRun: number;
+  cradleX: number;
+}
+
+export interface StageClearInfo {
+  stage: number;
+  title: string;
+  isBoss: boolean;
+  pearlCount: number;
+  chain: number;
+  longestChain: number;
+}
+
+const STORAGE_KEY = 'hoshitsugi_kintsugi_record_v4';
+const RUN_KEY = 'hoshitsugi_kintsugi_run_v1';
+
+export function emptyRanks(): Record<AbilityId, number> {
+  return {
+    pearl_surge: 0,
+    twin_ring: 0,
+    kintsugi_slash: 0,
+    chain_burst: 0,
+    sky_string: 0,
+    piercing_gold: 0,
+    gold_lightning: 0,
+    bounce_split: 0,
+  };
+}
 
 export function loadRecord(): KintsugiRecord {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem('hoshitsugi_kintsugi_record_v3');
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
         highestStage: parsed.highestStage ?? 1,
+        highestCleared: parsed.highestCleared ?? Math.max(0, (parsed.highestStage ?? 1) - 1),
         longestResonance: parsed.longestResonance ?? 0,
         soundOn: parsed.soundOn ?? true,
+        totalClears: parsed.totalClears ?? 0,
+        runsPlayed: parsed.runsPlayed ?? 0,
       };
     }
   } catch {
     // ignore
   }
-  return { highestStage: 1, longestResonance: 0, soundOn: true };
+  return {
+    highestStage: 1,
+    highestCleared: 0,
+    longestResonance: 0,
+    soundOn: true,
+    totalClears: 0,
+    runsPlayed: 0,
+  };
 }
 
 export function saveRecord(rec: KintsugiRecord): void {
@@ -343,4 +391,50 @@ export function saveRecord(rec: KintsugiRecord): void {
   } catch {
     // ignore
   }
+}
+
+export function loadRun(): RunSnapshot | null {
+  try {
+    const raw = localStorage.getItem(RUN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.stage) return null;
+    return {
+      stage: parsed.stage,
+      integrity: parsed.integrity ?? 3,
+      maxIntegrity: parsed.maxIntegrity ?? 3,
+      ranks: { ...emptyRanks(), ...(parsed.ranks ?? {}) },
+      collectedOrbPearls: parsed.collectedOrbPearls ?? 0,
+      stageClearBonusPearls: parsed.stageClearBonusPearls ?? 0,
+      awakeningSeals: parsed.awakeningSeals ?? 0,
+      longestChainInRun: parsed.longestChainInRun ?? 0,
+      cradleX: parsed.cradleX ?? 195,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveRun(snap: RunSnapshot): void {
+  try {
+    localStorage.setItem(RUN_KEY, JSON.stringify(snap));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearRun(): void {
+  try {
+    localStorage.removeItem(RUN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function isNightUnlocked(night: number, rec: KintsugiRecord): boolean {
+  return night === 1 || night <= rec.highestCleared + 1;
+}
+
+export function nightSelectCount(rec: KintsugiRecord): number {
+  return Math.min(40, Math.max(15, Math.ceil((Math.max(rec.highestCleared, rec.highestStage) + 5) / 5) * 5));
 }
