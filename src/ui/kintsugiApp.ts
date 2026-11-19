@@ -10,7 +10,7 @@ import {
   saveRecord,
 } from '../game/kintsugiData';
 
-const ROMAN_RANKS = ['', 'I', 'II', 'III', 'IV', 'V'];
+const RANK_MARKS = ['', '1', '2', '3', '4', '5'];
 
 export class KintsugiApp {
   private root: HTMLElement;
@@ -43,20 +43,20 @@ export class KintsugiApp {
       <div class="lacquer-frame" id="lacquer-frame">
         <header class="top-margin prologue-dim" id="top-margin">
           <div class="act-inscription">
-            <span class="act-kanji" id="hud-act-kanji" data-testid="hud-act">STAGE 1</span>
-            <span class="act-sub" id="hud-act-sub">白磁の門</span>
-            <span class="awakening-dots" id="hud-awake-dots" title="3印で能力覚醒"></span>
+            <span class="act-kanji" id="hud-act-kanji" data-testid="hud-act">夜1</span>
+            <span class="act-sub" id="hud-act-sub">門前</span>
+            <span class="awakening-dots" id="hud-awake-dots" title="三つ溜まると技が増える"></span>
           </div>
 
-          <div class="integrity-vessels" id="hud-vessels" data-testid="hud-vessels" title="器の無垢">
+          <div class="integrity-vessels" id="hud-vessels" data-testid="hud-vessels" title="店の器">
             <span class="vessel-pip"></span>
             <span class="vessel-pip"></span>
             <span class="vessel-pip"></span>
           </div>
 
           <div class="utility-glyphs">
-            <button class="glyph-btn" id="btn-sound" title="音響切替">${this.record.soundOn ? '音' : '静'}</button>
-            <button class="glyph-btn" id="btn-prologue" data-testid="btn-prologue" title="序幕へ戻る">序</button>
+            <button class="glyph-btn" id="btn-sound" title="音の入切">${this.record.soundOn ? '音' : '静'}</button>
+            <button class="glyph-btn" id="btn-prologue" data-testid="btn-prologue" title="店先へ戻る">店</button>
           </div>
         </header>
 
@@ -64,8 +64,8 @@ export class KintsugiApp {
 
         <div class="guardian-strip" id="guardian-strip">
           <div class="guardian-strip-row">
-            <span id="guardian-name">蝕天の機巧</span>
-            <span id="guardian-sub" style="color:var(--shu);font-size:9.5px;letter-spacing:0.1em;">六枚の月輪を纏う黒曜の日蝕核</span>
+            <span id="guardian-name">欠け月</span>
+            <span id="guardian-sub" style="color:var(--cinnabar);font-size:11px;">ひびの入った月</span>
           </div>
           <div class="guardian-hairline">
             <div class="guardian-hairline-fill" id="guardian-fill" style="width:100%;"></div>
@@ -80,11 +80,11 @@ export class KintsugiApp {
         <footer class="bottom-margin">
           <div class="slash-seal" id="hud-slash-seal" data-testid="hud-slash">
             <span class="slash-pips" id="hud-slash-pips"></span>
-            <span id="hud-guidance">引いて狙い、離して放つ</span>
+            <span id="hud-guidance">糸を引いて、放す</span>
           </div>
           <div class="bottom-right-group">
             <span class="resonance-note" id="hud-chain"></span>
-            <button class="ff-btn" id="btn-ff" data-testid="btn-ff">倍速</button>
+            <button class="ff-btn" id="btn-ff" data-testid="btn-ff">急</button>
           </div>
         </footer>
 
@@ -197,7 +197,7 @@ export class KintsugiApp {
         crestStrip.innerHTML = hud.acquiredBadges
           .map(
             (b) =>
-              `<span class="crest-chip">${b.shortCrest}<em>${ROMAN_RANKS[b.rank] ?? b.rank}</em></span>`
+              `<span class="crest-chip">${b.shortCrest}<em>${RANK_MARKS[b.rank] ?? b.rank}</em></span>`
           )
           .join('');
       } else {
@@ -221,10 +221,10 @@ export class KintsugiApp {
           const turns = hud.guardianTurnsLeft;
           if (turns !== null) {
             gSub.textContent =
-              turns <= 2
-                ? `結界寸前・残り ${turns} 手`
-                : `${hud.guardianSubtitle ?? ''} ／ 結界まで ${turns} 手`;
-            gSub.style.color = turns <= 2 ? '#FF6E62' : 'var(--kintsugi)';
+                turns <= 2
+                ? `敷居まで あと${turns}手`
+                : `${hud.guardianSubtitle ?? ''}  ·  あと${turns}手`;
+            gSub.style.color = turns <= 2 ? '#ff8a7a' : 'var(--lamp)';
           } else if (hud.guardianSubtitle) {
             gSub.textContent = hud.guardianSubtitle;
           }
@@ -260,20 +260,20 @@ export class KintsugiApp {
     if (seal && guideEl) {
       if (hud.phase === 'PROLOGUE') {
         seal.classList.remove('ready');
-        guideEl.textContent = '下の金珠を引いて放つ';
+        guideEl.textContent = '下の金の糸を引く';
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         seal.classList.remove('ready');
-        guideEl.textContent = '引いて狙い、離して放つ';
+        guideEl.textContent = '糸を引いて、放す';
       } else if (hud.phase === 'FLIGHT') {
         if (!hud.hasSlashAbility) {
           seal.classList.remove('ready');
-          guideEl.textContent = '金珠が跳ね返り器を砕く';
+          guideEl.textContent = '珠が跳ねて、器を継ぐ';
         } else if (hud.slashesLeft > 0) {
           seal.classList.add('ready');
-          guideEl.textContent = '画面タップで「金継ぎの一閃」';
+          guideEl.textContent = '画面を叩いて「一閃」';
         } else {
           seal.classList.remove('ready');
-          guideEl.textContent = '一閃 使用済み';
+          guideEl.textContent = '一閃は使い切った';
         }
       }
     }
@@ -281,17 +281,17 @@ export class KintsugiApp {
     if (ffBtn) {
       ffBtn.style.display = hud.phase === 'FLIGHT' ? 'inline-block' : 'none';
       ffBtn.classList.toggle('active', hud.fastForward);
-      ffBtn.textContent = hud.fastForward ? '倍速中' : '倍速';
+      ffBtn.textContent = hud.fastForward ? '急!' : '急';
     }
 
     if (chainEl) {
       if (hud.phase === 'FLIGHT') {
         const parts: string[] = [];
         if (hud.activePearlCount > 1) parts.push(`${hud.activePearlCount}珠`);
-        if (hud.chainCount > 0) parts.push(`${hud.chainCount}共鳴`);
-        chainEl.textContent = parts.join('・');
+        if (hud.chainCount > 0) parts.push(`${hud.chainCount}手`);
+        chainEl.textContent = parts.join('  ');
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
-        chainEl.textContent = `金珠 ×${hud.basePearlCount}`;
+        chainEl.textContent = `珠 ×${hud.basePearlCount}`;
       } else {
         chainEl.textContent = '';
       }
@@ -307,28 +307,29 @@ export class KintsugiApp {
 
     const recLine =
       this.record.longestResonance > 0
-        ? `最高到達：${formatStageLabel(this.record.highestStage)} ／ 最大共鳴：${this.record.longestResonance}`
-        : '黒漆の天球盤';
+        ? `いちばん奥 ${formatStageLabel(this.record.highestStage)}　上手 ${this.record.longestResonance}`
+        : '今夜も、落ちた星を継ぐ';
 
     host.innerHTML = `
       <div class="prologue-veil" data-testid="prologue-veil">
         <div class="prologue-centerpiece">
-          <div class="hanko-seal">白磁金継</div>
-          <div class="title-cartouche" aria-label="星継">
-            <span class="title-glyph">星</span>
-            <span class="title-glyph">継</span>
+          <div class="shop-label">よるの きんつぎや</div>
+          <div class="noren" aria-label="星継">
+            <div class="noren-panel">星</div>
+            <div class="noren-panel">継</div>
           </div>
-          <div class="title-roman">HOSHITSUGI</div>
           <div class="prologue-poem">
-            砕けた白磁の星々を<br/>
-            一筋の金糸で結びゆく
+            落ちた星を、<br/>金で縫う。
           </div>
           <div class="prologue-record">${recLine}</div>
         </div>
 
-        <button class="prologue-trigger-btn" id="btn-open-curtain" data-testid="btn-open-curtain">
-          幕を開ける
-        </button>
+        <div class="prologue-actions">
+          <div class="pull-hint">下の金の糸を、引いて放す</div>
+          <button class="prologue-trigger-btn" id="btn-open-curtain" data-testid="btn-open-curtain">
+            継ぐ
+          </button>
+        </div>
       </div>
     `;
 
@@ -365,15 +366,15 @@ export class KintsugiApp {
   private renderAwakeningModal(stageCleared: number): void {
     const bossBonus = isBossStage(stageCleared);
     const kicker = bossBonus
-      ? `${formatStageLabel(stageCleared)} 機神討伐 — 特別覚醒`
-      : `${formatStageLabel(stageCleared)} 突破 — 三印成就`;
+      ? `${formatStageLabel(stageCleared)} の核を割った`
+      : `${formatStageLabel(stageCleared)} を継いだ`;
     const host = this.frame.querySelector('#ceremony-host') as HTMLElement;
     host.innerHTML = `
       <div class="ceremony-modal" data-testid="interlude-modal">
         <div class="ceremony-heading">
           <div class="ceremony-kicker">${kicker}</div>
-          <div class="ceremony-title">能力の銘を刻む</div>
-          <div class="ceremony-sub">少しずつ力を重ね、天球の深淵へ進む</div>
+          <div class="ceremony-title">どの技を継ぐ</div>
+          <div class="ceremony-sub">店の腕が、ひとつ上がる</div>
         </div>
 
         <div class="talisman-list">
@@ -382,8 +383,8 @@ export class KintsugiApp {
               const curRank = this.engine.ranks[ab.id] ?? 0;
               const isNew = curRank === 0;
               const badgeText = isNew
-                ? '新規解禁'
-                : `強化 Lv.${curRank} → ${curRank + 1}`;
+                ? '新しい技'
+                : `${curRank} → ${curRank + 1}`;
               const desc =
                 ab.rankDescriptions[Math.min(ab.rankDescriptions.length - 1, curRank)] ??
                 ab.rankDescriptions[0];
@@ -425,16 +426,16 @@ export class KintsugiApp {
     host.innerHTML = `
       <div class="ceremony-modal" data-testid="broken-modal">
         <div class="epilogue-box">
-          <div class="hanko-seal">器 砕 け り</div>
-          <div class="ceremony-title">星霜の結び、此処に満つ</div>
+          <div class="epilogue-stamp">床に落ちた</div>
+          <div class="ceremony-title">今夜は、ここまで</div>
 
           <div class="epilogue-metrics">
-            <div>到達ステージ<strong>${formatStageLabel(stageReached)}</strong></div>
-            <div>最大共鳴<strong>${longestChain}</strong></div>
+            <div>届いた夜<strong>${formatStageLabel(stageReached)}</strong></div>
+            <div>いちばん上手<strong>${longestChain}</strong></div>
           </div>
 
           <button class="prologue-trigger-btn" id="btn-mend-again" data-testid="btn-mend-again">
-            STAGE 1から再び挑む
+            もう一度、灯りをつける
           </button>
         </div>
       </div>
