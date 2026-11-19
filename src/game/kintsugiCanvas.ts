@@ -321,7 +321,7 @@ export class KintsugiCanvasEngine {
     this.coronaGlowSprite = this.buildCoronaGlowSprite();
 
     this.bgImage = new Image();
-    this.bgImage.src = './assets/kintsugi-bg.webp';
+    this.bgImage.src = './assets/night-sky.webp';
 
     this.initAmbientGoldDust();
     this.bindPointer();
@@ -1575,7 +1575,7 @@ export class KintsugiCanvasEngine {
             lineWidth: 2,
           });
           sound.playPorcelainShatter(true);
-          this.spawnWhisper(sx, sy - 8, '装甲破砕', '#FFE394', 11.5);
+          this.spawnWhisper(sx, sy - 8, '欠けた', '#FFE394', 12);
           this.spawnEphemeralBurstPearls(sx, sy, 2);
           const fractureShock = Math.max(8, Math.round(g.maxHp * 0.09));
           this.strikeGuardianCore(fractureShock, g.x, g.y, false);
@@ -1688,7 +1688,7 @@ export class KintsugiCanvasEngine {
           this.killsSinceRecharge = 0;
           if (this.slashesLeft < this.maxSlashes + 1) {
             this.slashesLeft += 1;
-            this.spawnWhisper(vx, vy - 10, '一閃 復', '#F2C464', 11.5);
+            this.spawnWhisper(vx, vy - 10, '一閃 もどった', '#F2C464', 12);
           }
         }
       }
@@ -1884,14 +1884,14 @@ export class KintsugiCanvasEngine {
           alpha: 0.95,
           lineWidth: 2.6,
         });
-        this.spawnWhisper(g.x, SEAL_LINE_Y - 24, '結界破損 — 反発', '#FF8E82', 14);
+        this.spawnWhisper(g.x, SEAL_LINE_Y - 24, '敷居が弾いた', '#FF8E82', 14);
       }
     } else if (this.guardian) {
       const turnsLeft = this.getGuardianTurnsUntilBreach();
       if (turnsLeft === 2) {
-        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '結界まで 残り2手', '#F2C464', 12);
+        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '敷居まで あと2手', '#F2C464', 13);
       } else if (turnsLeft === 1) {
-        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '結界寸前 — 残り1手', '#FF7A6E', 13);
+        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, 'いま、敷居の前', '#FF7A6E', 14);
       }
     }
 
@@ -1944,7 +1944,7 @@ export class KintsugiCanvasEngine {
       this.spawnWhisper(
         TABLET_W * 0.5,
         TABLET_H * 0.44,
-        `${formatStageLabel(this.stage)} 浄化  珠+1`,
+        `${formatStageLabel(this.stage)} を継いだ  珠+1`,
         '#FFF2CC',
         15
       );
@@ -2125,33 +2125,14 @@ export class KintsugiCanvasEngine {
       );
     }
 
-    ctx.fillStyle = '#09080C';
+    ctx.fillStyle = '#081018';
     ctx.fillRect(0, 0, TABLET_W, TABLET_H);
 
-    if (this.bgImage.complete) {
-      ctx.globalAlpha = 0.68;
+    if (this.bgImage.complete && this.bgImage.naturalWidth > 0) {
+      ctx.globalAlpha = 0.94;
       ctx.drawImage(this.bgImage, 0, 0, TABLET_W, TABLET_H);
       ctx.globalAlpha = 1;
     }
-
-    ctx.strokeStyle = 'rgba(230, 184, 92, 0.28)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(10, 10, TABLET_W - 20, TABLET_H - 20);
-
-    ctx.save();
-    ctx.translate(TABLET_W * 0.5, TABLET_H * 0.46);
-    ctx.rotate(this.timeSec * (this.chainCount >= 50 ? 0.1 : 0.03));
-    ctx.strokeStyle =
-      this.chainCount >= 60 ? 'rgba(230, 184, 92, 0.18)' : 'rgba(230, 184, 92, 0.08)';
-    ctx.lineWidth = 0.9;
-    ctx.beginPath();
-    ctx.arc(0, 0, 138, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([3, 8]);
-    ctx.beginPath();
-    ctx.arc(0, 0, 154, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
 
     for (const m of this.dust) {
       ctx.fillStyle = '#E6B85C';
@@ -2170,29 +2151,34 @@ export class KintsugiCanvasEngine {
       ctx.textBaseline = 'middle';
       ctx.fillStyle =
         this.chainCount >= 90
-          ? 'rgba(255, 240, 194, 0.32)'
+          ? 'rgba(255, 240, 194, 0.34)'
           : this.chainCount >= 35
-          ? 'rgba(230, 184, 92, 0.22)'
-          : 'rgba(242, 237, 228, 0.12)';
-      ctx.font = '400 72px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+          ? 'rgba(212, 162, 74, 0.24)'
+          : 'rgba(234, 217, 192, 0.14)';
+      ctx.font = '600 68px "Klee One", "Hiragino Maru Gothic ProN", serif';
       ctx.fillText(`${this.chainCount}`, 0, 0);
-      ctx.font = '400 11px "Shippori Mincho", "Hiragino Mincho ProN", serif';
-      ctx.fillText(this.chainCount >= 90 ? '天 球 共 鳴' : '共 鳴', 0, 44);
+      ctx.font = '400 13px "Klee One", "Hiragino Maru Gothic ProN", serif';
+      ctx.fillText(this.chainCount >= 90 ? '名人' : this.chainCount >= 35 ? '巧い' : '上手', 0, 42);
       ctx.restore();
     }
 
-    // Sacred Defense Seal Line (`防衛結界線` — ALWAYS visible, pulses Vermilion when Boss is close!)
+    // Shop threshold (`敷居`) — solid plank, not a HUD hairline
     if (this.phase !== 'PROLOGUE') {
       const bossTurns = this.getGuardianTurnsUntilBreach();
       const isUrgent = bossTurns !== null && bossTurns <= 2;
-      const pulse = isUrgent ? 0.55 + 0.35 * Math.sin(this.timeSec * 6.5) : 0.26;
+      const pulse = isUrgent ? 0.72 + 0.28 * Math.sin(this.timeSec * 6.5) : 0.42;
       ctx.save();
-      ctx.strokeStyle = `rgba(217, 65, 54, ${pulse.toFixed(2)})`;
-      ctx.lineWidth = isUrgent ? 1.4 : 0.9;
-      ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = `rgba(90, 58, 32, 0.7)`;
+      ctx.lineWidth = 5;
       ctx.beginPath();
-      ctx.moveTo(26, SEAL_LINE_Y);
-      ctx.lineTo(TABLET_W - 26, SEAL_LINE_Y);
+      ctx.moveTo(18, SEAL_LINE_Y);
+      ctx.lineTo(TABLET_W - 18, SEAL_LINE_Y);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(196, 69, 54, ${pulse.toFixed(2)})`;
+      ctx.lineWidth = isUrgent ? 2.2 : 1.3;
+      ctx.beginPath();
+      ctx.moveTo(22, SEAL_LINE_Y - 1);
+      ctx.lineTo(TABLET_W - 22, SEAL_LINE_Y - 1);
       ctx.stroke();
       ctx.restore();
     }
@@ -2224,7 +2210,7 @@ export class KintsugiCanvasEngine {
       ctx.arc(0, 0, o.r, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = '#FFFDF5';
-      ctx.font = '600 9.5px "Shippori Mincho", Georgia, serif';
+      ctx.font = '500 10px "Klee One", "Hiragino Maru Gothic ProN", serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`+${o.bonus}珠`, 0, 0.5);
@@ -2262,7 +2248,7 @@ export class KintsugiCanvasEngine {
       ctx.restore();
 
       ctx.fillStyle = r.flash > 0 ? '#FFFDF5' : '#F2C464';
-      ctx.font = '600 10px "Shippori Mincho", Georgia, serif';
+      ctx.font = '500 11px "Klee One", "Hiragino Maru Gothic ProN", serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`×${r.charges}`, 0, 0.5);
@@ -2408,7 +2394,7 @@ export class KintsugiCanvasEngine {
     for (const c of this.callouts) {
       ctx.save();
       ctx.globalAlpha = Math.max(0, c.life / c.maxLife);
-      ctx.font = `500 ${c.size}px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif`;
+      ctx.font = `500 ${c.size}px "Klee One", "Hiragino Maru Gothic ProN", serif`;
       ctx.textAlign = 'center';
       ctx.fillStyle = c.color;
       ctx.fillText(c.text, c.x, c.y);
@@ -2420,19 +2406,38 @@ export class KintsugiCanvasEngine {
       const a =
         Math.min(1, this.chapterBannerTimer * 1.2) *
         Math.min(1, (maxT - this.chapterBannerTimer) * 3.5 + 0.2);
+      const hasHint = Boolean(this.currentBlueprint.whisperHint);
+      const slipW = 228;
+      const slipH = hasHint ? 74 : 54;
+      const slipX = TABLET_W * 0.5 - slipW * 0.5;
+      const slipY = 454;
       ctx.save();
-      ctx.globalAlpha = Math.max(0, Math.min(0.95, a));
+      ctx.globalAlpha = Math.max(0, Math.min(0.96, a));
+      ctx.translate(TABLET_W * 0.5, slipY + slipH * 0.5);
+      ctx.rotate(-0.018);
+      ctx.translate(-TABLET_W * 0.5, -(slipY + slipH * 0.5));
+      ctx.fillStyle = 'rgba(234, 217, 192, 0.94)';
+      ctx.beginPath();
+      ctx.moveTo(slipX + 8, slipY);
+      ctx.lineTo(slipX + slipW, slipY + 3);
+      ctx.lineTo(slipX + slipW - 6, slipY + slipH);
+      ctx.lineTo(slipX, slipY + slipH - 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(90, 58, 32, 0.18)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#E6B85C';
-      ctx.font = '500 11.5px "Shippori Mincho", "Hiragino Mincho ProN", serif';
-      ctx.fillText(formatStageLabel(this.stage), TABLET_W * 0.5, 480);
-      ctx.fillStyle = '#F2EDE4';
-      ctx.font = '400 18px "Shippori Mincho", "Hiragino Mincho ProN", serif';
-      ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, 503);
+      ctx.fillStyle = '#8a6420';
+      ctx.font = '500 11px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
+      ctx.fillText(formatStageLabel(this.stage), TABLET_W * 0.5, slipY + 18);
+      ctx.fillStyle = '#1c1712';
+      ctx.font = '600 18px "Klee One", "Hiragino Maru Gothic ProN", serif';
+      ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, slipY + (hasHint ? 40 : 38));
       if (this.currentBlueprint.whisperHint) {
-        ctx.fillStyle = 'rgba(242, 196, 100, 0.88)';
-        ctx.font = '400 11px "Shippori Mincho", "Hiragino Mincho ProN", serif';
-        ctx.fillText(this.currentBlueprint.whisperHint, TABLET_W * 0.5, 524);
+        ctx.fillStyle = '#5c4a32';
+        ctx.font = '400 12px "Klee One", "Hiragino Maru Gothic ProN", serif';
+        ctx.fillText(this.currentBlueprint.whisperHint, TABLET_W * 0.5, slipY + 60);
       }
       ctx.restore();
     }
@@ -2849,7 +2854,7 @@ export class KintsugiCanvasEngine {
 
     // Crisp Ceremonial Core HP Numeral
     ctx.fillStyle = '#FFF7E2';
-    ctx.font = '500 14px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+    ctx.font = '500 14px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${Math.max(0, g.hp)}`, 0, 1);
@@ -2924,7 +2929,7 @@ export class KintsugiCanvasEngine {
     }
 
     ctx.fillStyle = v.isVermilion ? '#B6291F' : '#221E1A';
-    ctx.font = '600 11.5px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+    ctx.font = '500 12px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${v.hp}`, 0, 0.5);
@@ -3063,10 +3068,15 @@ export class KintsugiCanvasEngine {
     ctx.save();
     ctx.translate(cx, cy);
 
-    ctx.strokeStyle = 'rgba(230, 184, 92, 0.65)';
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(212, 162, 74, 0.82)';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.arc(0, 0, 18, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.ellipse(0, 6, 16, 9, 0, Math.PI * 0.08, Math.PI * 0.92);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 13, 6, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(212, 162, 74, 0.35)';
+    ctx.lineWidth = 1;
     ctx.stroke();
 
     if (this.phase === 'PROLOGUE' || this.phase === 'AIMING') {
@@ -3080,15 +3090,15 @@ export class KintsugiCanvasEngine {
 
       if (this.phase === 'AIMING') {
         ctx.fillStyle = '#F2C464';
-        ctx.font = '500 11.5px "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif';
+        ctx.font = '600 12px "Klee One", "Hiragino Maru Gothic ProN", serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`×${this.getBasePearlCount()}`, 0, 29);
+        ctx.fillText(`×${this.getBasePearlCount()}`, 0, 30);
       }
     } else if (this.phase === 'FLIGHT' && this.launchQueue > 0) {
       ctx.fillStyle = 'rgba(242, 196, 100, 0.78)';
-      ctx.font = '400 10.5px "Shippori Mincho", Georgia, serif';
+      ctx.font = '400 11px "Klee One", serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`残 ${this.launchQueue}`, 0, 28);
+      ctx.fillText(`あと ${this.launchQueue}`, 0, 28);
     }
     ctx.restore();
   }
