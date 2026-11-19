@@ -4,30 +4,44 @@ import {
   ABILITIES,
   AbilityDef,
   KintsugiRecord,
+  RunSnapshot,
+  StageClearInfo,
+  clearRun,
   formatStageLabel,
+  getStageBlueprint,
   isBossStage,
+  isNightUnlocked,
   loadRecord,
+  loadRun,
+  nightSelectCount,
   saveRecord,
+  saveRun,
 } from '../game/kintsugiData';
 
 const RANK_MARKS = ['', '1', '2', '3', '4', '5'];
+
+type MenuView = 'home' | 'nights' | 'records';
 
 export class KintsugiApp {
   private root: HTMLElement;
   private frame!: HTMLElement;
   private engine!: KintsugiCanvasEngine;
   private record: KintsugiRecord;
+  private run: RunSnapshot | null;
   private choices: AbilityDef[] = [];
   private lastClearedStage = 1;
+  private menu: MenuView = 'home';
+  private playing = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
     this.record = loadRecord();
+    this.run = loadRun();
     sound.enabled = this.record.soundOn;
 
     this.mountShell();
     this.mountEngine();
-    this.renderPrologueVeil(true);
+    this.renderMenu('home');
 
     (window as unknown as Record<string, unknown>).__KINTSUGI__ = {
       app: this,
@@ -43,8 +57,8 @@ export class KintsugiApp {
       <div class="lacquer-frame" id="lacquer-frame">
         <header class="top-margin prologue-dim" id="top-margin">
           <div class="act-inscription">
-            <span class="act-kanji" id="hud-act-kanji" data-testid="hud-act">夜1</span>
-            <span class="act-sub" id="hud-act-sub">門前</span>
+            <span class="act-kanji" id="hud-act-kanji" data-testid="hud-act">星継</span>
+            <span class="act-sub" id="hud-act-sub">夜の金継ぎ屋</span>
             <span class="awakening-dots" id="hud-awake-dots" title="三つ溜まると技が増える"></span>
           </div>
 
@@ -80,7 +94,7 @@ export class KintsugiApp {
         <footer class="bottom-margin">
           <div class="slash-seal" id="hud-slash-seal" data-testid="hud-slash">
             <span class="slash-pips" id="hud-slash-pips"></span>
-            <span id="hud-guidance">糸を引いて、放す</span>
+            <span id="hud-guidance">店先</span>
           </div>
           <div class="bottom-right-group">
             <span class="resonance-note" id="hud-chain"></span>
@@ -106,9 +120,7 @@ export class KintsugiApp {
     this.frame.querySelector('#btn-prologue')?.addEventListener('click', () => {
       sound.unlock();
       sound.playThreadTick(2);
-      this.clearCeremonyModal();
-      this.engine.preparePrologue();
-      this.renderPrologueVeil(true);
+      this.goHome(true);
     });
 
     this.frame.querySelector('#btn-ff')?.addEventListener('click', () => {
@@ -121,32 +133,85 @@ export class KintsugiApp {
     this.engine = new KintsugiCanvasEngine(canvas, {
       onStateChange: (hud) => this.syncHud(hud),
       onPrologueDismissed: () => {
-        this.renderPrologueVeil(false);
+        this.playing = true;
+        this.renderMenuHost('');
         this.fitStage();
+      },
+      onStageCleared: (info) => this.handleStageCleared(info),
+      onRunPersist: (snap) => {
+        this.run = snap;
+        saveRun(snap);
       },
       onAwakeningReady: (stageCleared, maxChain) => {
         this.lastClearedStage = stageCleared;
-        if (stageCleared + 1 > this.record.highestStage) {
-          this.record.highestStage = stageCleared + 1;
-        }
-        if (maxChain > this.record.longestResonance) {
-          this.record.longestResonance = maxChain;
-        }
-        saveRecord(this.record);
-
+        this.noteProgress(stageCleared + 1, maxChain);
         this.rollThreeAbilities(stageCleared);
         this.renderAwakeningModal(stageCleared);
       },
       onVesselBroken: (stageReached, longestChain) => {
-        if (stageReached > this.record.highestStage) this.record.highestStage = stageReached;
-        if (longestChain > this.record.longestResonance) this.record.longestResonance = longestChain;
-        saveRecord(this.record);
-
+        this.noteProgress(stageReached, longestChain);
+        this.run = null;
+        clearRun();
+        this.playing = false;
         this.renderBrokenModal(stageReached, longestChain);
       },
     });
 
     this.fitStage();
+  }
+
+  private goHome(saveIfPlaying: boolean): void {
+    this.clearCeremonyModal();
+    if (saveIfPlaying && this.playing && this.engine.phase !== 'SHATTERED' && this.engine.phase !== 'PROLOGUE') {
+      const snap = this.engine.exportRun();
+      this.run = snap;
+      saveRun(snap);
+    }
+    this.playing = false;
+    this.engine.preparePrologue();
+    this.renderMenu('home');
+  }
+
+  private startNewNight(startStage: number): void {
+    sound.unlock();
+    sound.playKintsugiConvergence();
+    this.record.runsPlayed += 1;
+    saveRecord(this.record);
+    this.playing = true;
+    this.engine.beginRun(startStage, false);
+  }
+
+  private continueRun(): void {
+    const snap = this.run ?? loadRun();
+    if (!snap) {
+      this.startNewNight(1);
+      return;
+    }
+    sound.unlock();
+    sound.playKintsugiConvergence();
+    this.playing = true;
+    this.engine.restoreRun(snap);
+  }
+
+  private noteProgress(stageReached: number, chain: number): void {
+    if (stageReached > this.record.highestStage) this.record.highestStage = stageReached;
+    if (chain > this.record.longestResonance) this.record.longestResonance = chain;
+    saveRecord(this.record);
+  }
+
+  private handleStageCleared(info: StageClearInfo): void {
+    const newNight = info.stage > this.record.highestCleared;
+    const newChain = info.longestChain > this.record.longestResonance;
+    if (info.stage > this.record.highestCleared) this.record.highestCleared = info.stage;
+    if (info.stage > this.record.highestStage) this.record.highestStage = info.stage;
+    if (info.longestChain > this.record.longestResonance) {
+      this.record.longestResonance = info.longestChain;
+    }
+    this.record.totalClears += 1;
+    saveRecord(this.record);
+
+    if (newNight || newChain) sound.playRecordBreak();
+    this.renderClearToast(info, newNight, newChain);
   }
 
   private fitStage(): void {
@@ -159,16 +224,17 @@ export class KintsugiApp {
 
   private syncHud(hud: KintsugiHudState): void {
     const topMargin = this.frame.querySelector('#top-margin');
-    topMargin?.classList.toggle('prologue-dim', hud.phase === 'PROLOGUE');
+    const atShop = hud.phase === 'PROLOGUE' || !this.playing;
+    topMargin?.classList.toggle('prologue-dim', atShop);
 
     const actKanji = this.frame.querySelector('#hud-act-kanji');
     const actSub = this.frame.querySelector('#hud-act-sub');
     const awakeDots = this.frame.querySelector('#hud-awake-dots') as HTMLElement | null;
-    if (actKanji) actKanji.textContent = hud.stageLabel;
-    if (actSub) actSub.textContent = hud.stageTitle;
+    if (actKanji) actKanji.textContent = atShop ? '星継' : hud.stageLabel;
+    if (actSub) actSub.textContent = atShop ? '夜の金継ぎ屋' : hud.stageTitle;
 
     if (awakeDots) {
-      if (hud.phase === 'PROLOGUE' || hud.guardianTitle) {
+      if (atShop || hud.guardianTitle) {
         awakeDots.style.display = 'none';
       } else {
         awakeDots.style.display = 'inline-flex';
@@ -192,7 +258,7 @@ export class KintsugiApp {
     const crestStrip = this.frame.querySelector('#ability-crest-strip') as HTMLElement | null;
     if (crestStrip) {
       const wasVisible = crestStrip.style.display === 'flex';
-      if (hud.acquiredBadges.length > 0 && hud.phase !== 'PROLOGUE') {
+      if (hud.acquiredBadges.length > 0 && !atShop) {
         crestStrip.style.display = 'flex';
         crestStrip.innerHTML = hud.acquiredBadges
           .map(
@@ -214,14 +280,14 @@ export class KintsugiApp {
     const gFill = this.frame.querySelector('#guardian-fill') as HTMLElement | null;
     if (gStrip && gName && gFill) {
       const wasVisible = gStrip.style.display === 'block';
-      if (hud.guardianTitle && hud.phase !== 'PROLOGUE') {
+      if (hud.guardianTitle && !atShop) {
         gStrip.style.display = 'block';
         gName.textContent = hud.guardianTitle;
         if (gSub) {
           const turns = hud.guardianTurnsLeft;
           if (turns !== null) {
             gSub.textContent =
-                turns <= 2
+              turns <= 2
                 ? `敷居まで あと${turns}手`
                 : `${hud.guardianSubtitle ?? ''}  ·  あと${turns}手`;
             gSub.style.color = turns <= 2 ? '#ff8a7a' : 'var(--lamp)';
@@ -245,7 +311,7 @@ export class KintsugiApp {
     const ffBtn = this.frame.querySelector('#btn-ff') as HTMLElement | null;
 
     if (pipsEl) {
-      if (!hud.hasSlashAbility || hud.phase === 'PROLOGUE') {
+      if (!hud.hasSlashAbility || atShop) {
         pipsEl.innerHTML = '';
       } else {
         const total = Math.max(hud.maxSlashes, hud.slashesLeft);
@@ -258,9 +324,12 @@ export class KintsugiApp {
     }
 
     if (seal && guideEl) {
-      if (hud.phase === 'PROLOGUE') {
+      if (atShop) {
         seal.classList.remove('ready');
-        guideEl.textContent = '下の金の糸を引く';
+        guideEl.textContent = '店先';
+      } else if (hud.phase === 'CLEARED') {
+        seal.classList.remove('ready');
+        guideEl.textContent = '継いだ';
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         seal.classList.remove('ready');
         guideEl.textContent = '糸を引いて、放す';
@@ -296,21 +365,39 @@ export class KintsugiApp {
         chainEl.textContent = '';
       }
     }
+
+    if (hud.phase !== 'CLEARED') {
+      const toast = this.frame.querySelector('#clear-toast');
+      if (toast && hud.phase !== 'INTERLUDE') {
+        toast.remove();
+      }
+    }
   }
 
-  private renderPrologueVeil(visible: boolean): void {
+  private renderMenuHost(html: string): void {
     const host = this.frame.querySelector('#prologue-host') as HTMLElement;
-    if (!visible) {
-      host.innerHTML = '';
-      return;
-    }
+    if (host) host.innerHTML = html;
+  }
 
+  private renderMenu(view: MenuView): void {
+    this.menu = view;
+    this.run = loadRun();
+    if (view === 'nights') this.renderNightSelect();
+    else if (view === 'records') this.renderRecords();
+    else this.renderHome();
+    requestAnimationFrame(() => this.fitStage());
+  }
+
+  private renderHome(): void {
     const recLine =
-      this.record.longestResonance > 0
-        ? `いちばん奥 ${formatStageLabel(this.record.highestStage)}　上手 ${this.record.longestResonance}`
+      this.record.highestCleared > 0
+        ? `いちばん奥 ${formatStageLabel(this.record.highestCleared)}　上手 ${this.record.longestResonance}`
         : '今夜も、落ちた星を継ぐ';
+    const cont = this.run
+      ? `<button class="home-btn" id="btn-continue" data-testid="btn-continue">つづき　${formatStageLabel(this.run.stage)}</button>`
+      : '';
 
-    host.innerHTML = `
+    this.renderMenuHost(`
       <div class="prologue-veil" data-testid="prologue-veil">
         <div class="prologue-centerpiece">
           <div class="shop-label">よるの きんつぎや</div>
@@ -324,19 +411,127 @@ export class KintsugiApp {
           <div class="prologue-record">${recLine}</div>
         </div>
 
-        <div class="prologue-actions">
-          <div class="pull-hint">下の金の糸を、引いて放す</div>
+        <div class="home-actions">
           <button class="prologue-trigger-btn" id="btn-open-curtain" data-testid="btn-open-curtain">
-            継ぐ
+            今夜を継ぐ
           </button>
+          ${cont}
+          <button class="home-btn ghost" id="btn-nights" data-testid="btn-nights">夜をめくる</button>
+          <button class="home-btn ghost" id="btn-records">記録</button>
+        </div>
+      </div>
+    `);
+
+    this.frame.querySelector('#btn-open-curtain')?.addEventListener('click', () => {
+      this.startNewNight(1);
+    });
+    this.frame.querySelector('#btn-continue')?.addEventListener('click', () => this.continueRun());
+    this.frame.querySelector('#btn-nights')?.addEventListener('click', () => {
+      sound.unlock();
+      sound.playThreadTick(3);
+      this.renderMenu('nights');
+    });
+    this.frame.querySelector('#btn-records')?.addEventListener('click', () => {
+      sound.unlock();
+      sound.playThreadTick(4);
+      this.renderMenu('records');
+    });
+  }
+
+  private renderNightSelect(): void {
+    const count = nightSelectCount(this.record);
+    const cells: string[] = [];
+    for (let n = 1; n <= count; n++) {
+      const open = isNightUnlocked(n, this.record);
+      const bp = getStageBlueprint(n);
+      const boss = isBossStage(n);
+      const cleared = n <= this.record.highestCleared;
+      const cls = [
+        'night-cell',
+        open ? '' : 'locked',
+        boss ? 'boss' : '',
+        cleared ? 'cleared' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      cells.push(`
+        <button class="${cls}" data-night="${n}" ${open ? '' : 'disabled'} data-testid="night-${n}">
+          <em>${n}</em>
+          <span>${open ? bp.title : '未'}</span>
+        </button>
+      `);
+    }
+
+    this.renderMenuHost(`
+      <div class="menu-sheet" data-testid="night-select">
+        <div class="menu-head">
+          <button class="text-back" id="btn-back-home">店へ</button>
+          <div class="menu-title">夜をめくる</div>
+          <div class="menu-spacer"></div>
+        </div>
+        <p class="menu-lead">届いた夜から、はじめられる。珠は夜の数だけ持ち込む。</p>
+        <div class="night-grid">${cells.join('')}</div>
+      </div>
+    `);
+
+    this.frame.querySelector('#btn-back-home')?.addEventListener('click', () => this.renderMenu('home'));
+    this.frame.querySelectorAll('[data-night]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const n = Number((btn as HTMLElement).dataset.night);
+        if (!n || !isNightUnlocked(n, this.record)) return;
+        this.startNewNight(n);
+      });
+    });
+  }
+
+  private renderRecords(): void {
+    this.renderMenuHost(`
+      <div class="menu-sheet">
+        <div class="menu-head">
+          <button class="text-back" id="btn-back-home">店へ</button>
+          <div class="menu-title">記録</div>
+          <div class="menu-spacer"></div>
+        </div>
+        <div class="record-list">
+          <div><span>いちばん奥</span><strong>${this.record.highestCleared > 0 ? formatStageLabel(this.record.highestCleared) : '—'}</strong></div>
+          <div><span>届いた夜</span><strong>${formatStageLabel(this.record.highestStage)}</strong></div>
+          <div><span>いちばん上手</span><strong>${this.record.longestResonance}</strong></div>
+          <div><span>継いだ回数</span><strong>${this.record.totalClears}</strong></div>
+          <div><span>灯した夜</span><strong>${this.record.runsPlayed}</strong></div>
+        </div>
+      </div>
+    `);
+    this.frame.querySelector('#btn-back-home')?.addEventListener('click', () => this.renderMenu('home'));
+  }
+
+  private renderClearToast(info: StageClearInfo, newNight: boolean, newChain: boolean): void {
+    const host = this.frame.querySelector('#ceremony-host') as HTMLElement;
+    const grade =
+      info.chain >= 90 ? '名人' : info.chain >= 35 ? '巧い' : info.chain >= 8 ? '上手' : '継いだ';
+    const stamps = [
+      newNight ? '<span class="new-stamp">新記録</span>' : '',
+      newChain ? '<span class="new-stamp chain">上手 更新</span>' : '',
+    ]
+      .filter(Boolean)
+      .join('');
+
+    host.innerHTML = `
+      <div class="clear-toast" id="clear-toast" data-testid="clear-toast">
+        <div class="clear-card">
+          <div class="clear-kicker">${formatStageLabel(info.stage)}　${info.title}</div>
+          <div class="clear-title">${info.isBoss ? '核を割った' : '継いだ'}</div>
+          <div class="clear-stamps">${stamps}</div>
+          <div class="clear-metrics">
+            <div>珠<strong>×${info.pearlCount}</strong><em>+1</em></div>
+            <div>${grade}<strong>${info.chain}</strong></div>
+          </div>
+          <div class="clear-hint">タップで次へ</div>
         </div>
       </div>
     `;
 
-    host.querySelector('#btn-open-curtain')?.addEventListener('click', () => {
-      sound.unlock();
-      sound.playKintsugiConvergence();
-      this.engine.beginExpeditionAndOptionallyFire(false);
+    host.querySelector('#clear-toast')?.addEventListener('click', () => {
+      this.engine.skipClearHold();
     });
   }
 
@@ -437,6 +632,7 @@ export class KintsugiApp {
           <button class="prologue-trigger-btn" id="btn-mend-again" data-testid="btn-mend-again">
             もう一度、灯りをつける
           </button>
+          <button class="home-btn ghost" id="btn-broken-home">店へ戻る</button>
         </div>
       </div>
     `;
@@ -444,7 +640,14 @@ export class KintsugiApp {
     host.querySelector('#btn-mend-again')?.addEventListener('click', () => {
       sound.playKintsugiConvergence();
       this.clearCeremonyModal();
-      this.engine.beginExpeditionAndOptionallyFire(false);
+      this.record.runsPlayed += 1;
+      saveRecord(this.record);
+      this.playing = true;
+      this.engine.beginRun(1, false);
+    });
+    host.querySelector('#btn-broken-home')?.addEventListener('click', () => {
+      this.clearCeremonyModal();
+      this.goHome(false);
     });
   }
 
