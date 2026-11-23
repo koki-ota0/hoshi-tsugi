@@ -1,11 +1,23 @@
 // 星継 — 落ちた星を金で縫い、図に還す。
 
-import { constellationForStage } from './constellations';
+import {
+  CAMPAIGN_LENGTH,
+  constellationForStage,
+  geometryKindForStage,
+  GEOMETRY_PLATES,
+  plateSeason,
+  type GeometryKind,
+} from './constellations';
 import { stageCaption, type VisualTheme } from './visualTheme';
 
 export type { VisualTheme } from './visualTheme';
-export type { Season } from './constellations';
-export { constellationForStage, magnitudeOf, SEASON_PLATE } from './constellations';
+export type { Season, GeometryKind } from './constellations';
+export {
+  constellationForStage,
+  magnitudeOf,
+  SEASON_PLATE,
+  CAMPAIGN_LENGTH,
+} from './constellations';
 
 export type AbilityId =
   | 'pearl_surge'
@@ -98,7 +110,7 @@ export const ABILITIES: AbilityDef[] = [
     kanjiTitle: '地平の弦',
     shortCrest: '地平',
     reading: 'ちへいのつる',
-    minStageToAppear: 5,
+    minStageToAppear: 12,
     maxRank: 5,
     rankDescriptions: [
       '地平に金の弦。落ちた星を毎手2つまで返す',
@@ -114,7 +126,7 @@ export const ABILITIES: AbilityDef[] = [
     kanjiTitle: '光年の針',
     shortCrest: '光年',
     reading: 'こうねんのはり',
-    minStageToAppear: 5,
+    minStageToAppear: 12,
     maxRank: 5,
     rankDescriptions: [
       'トドメのとき、珠が1回だけ突き抜ける',
@@ -130,7 +142,7 @@ export const ABILITIES: AbilityDef[] = [
     kanjiTitle: '流星の鎖',
     shortCrest: '流星',
     reading: 'りゅうせいのくさり',
-    minStageToAppear: 8,
+    minStageToAppear: 24,
     maxRank: 5,
     rankDescriptions: [
       '16回当たるたび、近くの星へ流星（2）',
@@ -146,7 +158,7 @@ export const ABILITIES: AbilityDef[] = [
     kanjiTitle: '双星の分裂',
     shortCrest: '双星',
     reading: 'そうせいのぶんれつ',
-    minStageToAppear: 8,
+    minStageToAppear: 24,
     maxRank: 5,
     rankDescriptions: [
       '24回跳ねると、空中で一度だけ二つに割れる',
@@ -189,7 +201,8 @@ export const BOSS_ARCHETYPES: BossArchetype[] = [
   },
 ];
 
-export type FormationArchetype = 'CONSTELLATION' | 'GUARDIAN_BOSS';
+export type FormationArchetype = 'GEOMETRY' | 'CONSTELLATION' | 'GUARDIAN_BOSS';
+export type StageTier = 'normal' | 'mid' | 'grand';
 
 export interface StageBlueprint {
   stage: number;
@@ -199,44 +212,96 @@ export interface StageBlueprint {
   lucida: string;
   whisperHint: string | null;
   archetype: FormationArchetype;
+  tier: StageTier;
+  geometry: GeometryKind | null;
   baseHp: number;
 }
 
 export const SEALS_PER_AWAKENING = 3;
 
-/**
- * Does clearing `stage` trigger an Ability Awakening?
- * - Normal stages grant +1 Seal; every 3 Seals (Stage 3, 8, 13, 18...) triggers Awakening!
- * - Boss stages (Stage 5, 10, 15, 20...) ALWAYS trigger an immediate Awakening upon victory!
- */
+/** 2 幾何 + 1 星座。星座のうち中ボス（6）と大ボス（12）は有名な座。 */
+export function isConstellationStage(stage: number): boolean {
+  return stage > 0 && stage % 3 === 0;
+}
+
+export function isMidBossStage(stage: number): boolean {
+  return stage > 0 && stage % 6 === 0 && stage % 12 !== 0;
+}
+
+export function isGrandBossStage(stage: number): boolean {
+  return stage > 0 && stage % 12 === 0;
+}
+
 export function isBossStage(stage: number): boolean {
-  return stage % 5 === 0;
+  return isGrandBossStage(stage);
+}
+
+export function isAwakeningStage(stage: number): boolean {
+  return stage === 3 || isMidBossStage(stage) || isGrandBossStage(stage);
+}
+
+export function constellationClearsBefore(stage: number): number {
+  return Math.max(0, Math.floor((Math.max(1, stage) - 1) / 3));
+}
+
+export function stageBaseHp(stage: number): number {
+  if (stage <= 1) return 4;
+  if (stage === 2) return 5;
+  if (stage === 3) return 7;
+  const t = stage - 3;
+  return Math.round(7 + t * 1.05 + Math.pow(t, 1.12) * 0.42);
 }
 
 export function getStageBlueprint(stage: number): StageBlueprint {
-  const baseHp =
-    stage === 1
-      ? 4
-      : stage === 2
-      ? 6
-      : stage === 3
-      ? 8
-      : stage === 4
-      ? 11
-      : Math.round(11 + (stage - 4) * 3.8 + Math.pow(Math.max(0, stage - 4), 1.32) * 1.45);
+  const season = plateSeason(stage);
+  const raw = stageBaseHp(stage);
 
-  const figure = constellationForStage(stage);
-  const boss = isBossStage(stage);
+  if (isGrandBossStage(stage)) {
+    const figure = constellationForStage(stage);
+    return {
+      stage,
+      title: figure.title,
+      latin: figure.latin,
+      season: figure.season,
+      lucida: figure.lucida,
+      whisperHint: figure.lore,
+      archetype: 'GUARDIAN_BOSS',
+      tier: 'grand',
+      geometry: null,
+      baseHp: raw,
+    };
+  }
 
+  if (isConstellationStage(stage)) {
+    const figure = constellationForStage(stage);
+    const mid = isMidBossStage(stage);
+    return {
+      stage,
+      title: figure.title,
+      latin: figure.latin,
+      season: figure.season,
+      lucida: figure.lucida,
+      whisperHint: figure.lore,
+      archetype: 'CONSTELLATION',
+      tier: mid ? 'mid' : 'normal',
+      geometry: null,
+      baseHp: Math.round(raw * (mid ? 1.28 : 1.08)),
+    };
+  }
+
+  const kind = geometryKindForStage(stage);
+  const plate = GEOMETRY_PLATES[kind];
   return {
     stage,
-    title: figure.title,
-    latin: figure.latin,
-    season: figure.season,
-    lucida: figure.lucida,
-    whisperHint: figure.lore,
-    archetype: boss ? 'GUARDIAN_BOSS' : 'CONSTELLATION',
-    baseHp,
+    title: plate.title,
+    latin: plate.latin,
+    season,
+    lucida: '',
+    whisperHint: plate.lore,
+    archetype: 'GEOMETRY',
+    tier: 'normal',
+    geometry: kind,
+    baseHp: Math.round(raw * 0.88),
   };
 }
 
@@ -441,5 +506,7 @@ export function isNightUnlocked(night: number, rec: KintsugiRecord): boolean {
 }
 
 export function nightSelectCount(rec: KintsugiRecord): number {
-  return Math.min(40, Math.max(15, Math.ceil((Math.max(rec.highestCleared, rec.highestStage) + 5) / 5) * 5));
+  const reached = Math.max(rec.highestCleared, rec.highestStage, 1);
+  const plate = Math.ceil((reached + 6) / 12) * 12;
+  return Math.min(CAMPAIGN_LENGTH, Math.max(12, plate));
 }
