@@ -1,0 +1,295 @@
+/**
+ * Headless capture of 星継 playfield clips (no browser).
+ * Writes WebP/GIF under recordings/<stamp>/ for later SNS edit.
+ */
+import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const TABLET_W = 390;
+const TABLET_H = 660;
+const DPR = 2;
+
+const rafQueue: FrameRequestCallback[] = [];
+const localStore = new Map<string, string>();
+
+function stubDom(main: Canvas): void {
+  const style: Record<string, string> = {};
+  Object.assign(main, {
+    style,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    setPointerCapture: () => {},
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      width: TABLET_W,
+      height: TABLET_H,
+      right: TABLET_W,
+      bottom: TABLET_H,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }),
+  });
+
+  const g = globalThis as unknown as {
+    window: unknown;
+    document: unknown;
+    Image: unknown;
+    requestAnimationFrame: typeof requestAnimationFrame;
+    cancelAnimationFrame: typeof cancelAnimationFrame;
+    localStorage: Storage;
+    devicePixelRatio: number;
+    performance: { now: () => number };
+  };
+
+  g.devicePixelRatio = DPR;
+  g.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    rafQueue.push(cb);
+    return rafQueue.length;
+  };
+  g.cancelAnimationFrame = () => {};
+  g.localStorage = {
+    getItem: (k: string) => localStore.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      localStore.set(k, v);
+    },
+    removeItem: (k: string) => {
+      localStore.delete(k);
+    },
+    clear: () => localStore.clear(),
+    key: () => null,
+    length: 0,
+  } as Storage;
+
+  g.document = {
+    createElement: (tag: string) => {
+      if (tag !== 'canvas') return { style: {} };
+      const c = createCanvas(64, 64) as Canvas & { style: Record<string, string> };
+      c.style = {};
+      (c as unknown as { addEventListener: () => void }).addEventListener = () => {};
+      return c;
+    },
+    addEventListener: () => {},
+  };
+
+  g.window = g;
+  g.Image = class {
+    complete = false;
+    naturalWidth = 0;
+    naturalHeight = 0;
+    width = 0;
+    height = 0;
+    src = '';
+  };
+}
+
+function drainRaf(now: number): void {
+  const batch = rafQueue.splice(0, rafQueue.length);
+  for (const cb of batch) cb(now);
+}
+
+function writePng(canvas: Canvas, file: string): void {
+  fs.writeFileSync(file, canvas.toBuffer('image/png'));
+}
+
+function encodeAnim(framesDir: string, outFile: string, delay = 6): void {
+  const frames = fs
+    .readdirSync(framesDir)
+    .filter((f) => f.endsWith('.png'))
+    .sort()
+    .map((f) => path.join(framesDir, f));
+  if (frames.length === 0) throw new Error(`no frames in ${framesDir}`);
+  execFileSync(
+    'convert',
+    ['-delay', String(delay), '-loop', '0', ...frames, outFile],
+    { stdio: 'inherit' }
+  );
+}
+
+function cropAnim(
+  src: string,
+  out: string,
+  crop: string,
+  extra: string[] = []
+): void {
+  execFileSync('convert', [src, '-coalesce', '-crop', crop, '+repage', ...extra, out], {
+    stdio: 'inherit',
+  });
+}
+
+async function main(): Promise<void> {
+  const stamp =
+    process.env.DEMO_STAMP ??
+    `${new Date().toISOString().slice(0, 10)}-${(process.env.DEMO_SHA ?? 'dev').slice(0, 7)}`;
+  const outDir = path.join(ROOT, 'recordings', stamp);
+  const tmp = path.join('/tmp', `hoshitsugi-demo-${stamp}`);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const canvas = createCanvas(TABLET_W * DPR, TABLET_H * DPR);
+  stubDom(canvas);
+  const ctx = canvas.getContext('2d') as SKRSContext2D;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  const { KintsugiCanvasEngine } = await import('../src/game/kintsugiCanvas.ts');
+  const engine = new KintsugiCanvasEngine(canvas as unknown as HTMLCanvasElement, {
+    onStateChange: () => {},
+    onAwakeningReady: () => {},
+    onVesselBroken: () => {},
+    onPrologueDismissed: () => {},
+    onStageCleared: () => {},
+    onRunPersist: () => {},
+  });
+
+  const paperPath = path.join(ROOT, 'public/assets/atlas-paper.webp');
+  if (fs.existsSync(paperPath)) {
+    const paper = await loadImage(paperPath);
+    (engine as unknown as { bgImage: unknown }).bgImage = paper;
+  }
+
+  (engine as unknown as { canvas: { style: Record<string, string> } }).canvas.style = {
+    width: `${TABLET_W}px`,
+    height: `${TABLET_H}px`,
+  };
+
+  const shoot = () => {
+    (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.5 + (Math.random() - 0.5) * 0.35;
+    engine.releaseGoldenPearls();
+    engine.fastForward = true;
+  };
+
+  type Scene = { name: string; setup: () => void; frames: number; tick?: (i: number) => void };
+  const scenes: Scene[] = [
+    {
+      name: '01-aim-geometry',
+      frames: 48,
+      setup: () => {
+        engine.beginRun(1, false);
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.58;
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+      },
+      tick: (i) => {
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.5 - Math.sin(i / 8) * 0.28;
+      },
+    },
+    {
+      name: '02-volley-flight',
+      frames: 72,
+      setup: () => {
+        engine.beginRun(1, false);
+        shoot();
+      },
+    },
+    {
+      name: '03-constellation-triangulum',
+      frames: 64,
+      setup: () => {
+        engine.beginRun(3, false);
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.52;
+      },
+      tick: (i) => {
+        if (i === 18) shoot();
+      },
+    },
+    {
+      name: '04-midboss-cassiopeia',
+      frames: 80,
+      setup: () => {
+        engine.beginRun(6, false);
+        shoot();
+      },
+    },
+    {
+      name: '05-grand-orion',
+      frames: 90,
+      setup: () => {
+        engine.beginRun(12, false);
+        shoot();
+      },
+    },
+  ];
+
+  let now = 0;
+  const dtMs = 50;
+
+  for (const scene of scenes) {
+    console.log('scene', scene.name);
+    const dir = path.join(tmp, scene.name);
+    fs.mkdirSync(dir, { recursive: true });
+    scene.setup();
+    drainRaf(now);
+    for (let i = 0; i < scene.frames; i++) {
+      scene.tick?.(i);
+      now += dtMs;
+      drainRaf(now);
+      writePng(canvas, path.join(dir, `${String(i).padStart(3, '0')}.png`));
+    }
+    const dest = path.join(outDir, `${scene.name}.webp`);
+    encodeAnim(dir, dest, 5);
+    console.log(' wrote', dest, fs.statSync(dest).size);
+  }
+
+  const master = path.join(outDir, '02-volley-flight.webp');
+  if (fs.existsSync(master)) {
+    cropAnim(master, path.join(outDir, '06-square-playfield.webp'), '780x780+0+270');
+    cropAnim(master, path.join(outDir, '07-close-cradle.webp'), '780x480+0+840');
+    cropAnim(
+      path.join(outDir, '03-constellation-triangulum.webp'),
+      path.join(outDir, '08-close-stars.webp'),
+      '780x780+0+80'
+    );
+  }
+
+  const portrait = path.join(outDir, '09-portrait-story.webp');
+  execFileSync(
+    'convert',
+    [
+      path.join(outDir, '05-grand-orion.webp'),
+      '-coalesce',
+      '-gravity',
+      'center',
+      '-background',
+      '#cfc3a8',
+      '-extent',
+      '780x1387',
+      portrait,
+    ],
+    { stdio: 'inherit' }
+  );
+
+  fs.writeFileSync(
+    path.join(outDir, 'SHOTLIST.md'),
+    `# ${stamp}
+
+Playfield captures of 星継 for later SNS edit. Source is the live engine (atlas paper, geometry / constellation / bosses).
+
+| file | angle / use |
+|---|---|
+| 01-aim-geometry.webp | 正面・照準（図1 門列） |
+| 02-volley-flight.webp | 正面・放つ（珠の軌跡） |
+| 03-constellation-triangulum.webp | 正面・小ボス 三角 |
+| 04-midboss-cassiopeia.webp | 正面・中ボス カシオペヤ |
+| 05-grand-orion.webp | 正面・大ボス オリオン |
+| 06-square-playfield.webp | 正方形クロップ（フィード） |
+| 07-close-cradle.webp | 寄り・地平の弦／放つ手元 |
+| 08-close-stars.webp | 寄り・星座の器 |
+| 09-portrait-story.webp | 9:16 ストーリー余白 |
+
+20 fps WebP. Re-run: \`npx tsx scripts/record-demo.ts\`
+`
+  );
+
+  console.log('done', outDir);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
