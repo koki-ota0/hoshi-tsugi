@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
+    "demo": "tsx scripts/record-demo.ts",
     "sim": "tsx scripts/balance-sim.ts",
     "playtest": "tsx scripts/playwright-playtest.ts"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^1.2.0",
     "playwright": "^1.49.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
