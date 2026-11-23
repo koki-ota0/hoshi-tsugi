@@ -8,11 +8,13 @@ import {
   SEALS_PER_AWAKENING,
   StageBlueprint,
   StageClearInfo,
+  constellationForStage,
   emptyRanks,
-  formatStageLabel,
   getStageBlueprint,
   isBossStage,
 } from './kintsugiData';
+import { MAGNITUDE_MILESTONES, magnitudeOf } from './constellations';
+import { SKIN, stageCaption, type CanvasSkin, type VisualTheme } from './visualTheme';
 
 export const TABLET_W = 390;
 export const TABLET_H = 660;
@@ -302,13 +304,26 @@ export class KintsugiCanvasEngine {
   private shakeTimer = 0;
   private shakeAmp = 0;
   private veilAlpha = 0;
-  private veilColor = '#FFF3D1';
+  private veilColor = '#ece8e1';
   private chapterBannerTimer = 0;
+  private figureLinks: Array<[number, number]> = [];
+  private stitches: Array<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    life: number;
+    maxLife: number;
+  }> = [];
+  private lastHit: { x: number; y: number } | null = null;
+  private clearHoldMax = 12;
+  private comboFlash = 0;
 
   private bgImage: HTMLImageElement;
   private nextId = 1;
   private timeSec = 0;
   private rafId = 0;
+  private skin: CanvasSkin = SKIN;
 
   constructor(canvas: HTMLCanvasElement, callbacks: KintsugiCallbacks) {
     this.canvas = canvas;
@@ -320,7 +335,7 @@ export class KintsugiCanvasEngine {
     this.coronaGlowSprite = this.buildCoronaGlowSprite();
 
     this.bgImage = new Image();
-    this.bgImage.src = './assets/night-sky.webp';
+    this.setTheme('atlas');
 
     this.initAmbientGoldDust();
     this.bindPointer();
@@ -335,11 +350,11 @@ export class KintsugiCanvasEngine {
     c.height = size;
     const gctx = c.getContext('2d')!;
     const half = size * 0.5;
+    const s = this.skin ?? SKIN;
     const grad = gctx.createRadialGradient(half, half, 1.5, half, half, half);
-    grad.addColorStop(0, 'rgba(255, 252, 236, 0.98)');
-    grad.addColorStop(0.24, 'rgba(246, 206, 112, 0.78)');
-    grad.addColorStop(0.55, 'rgba(230, 184, 92, 0.24)');
-    grad.addColorStop(1, 'rgba(230, 184, 92, 0)');
+    grad.addColorStop(0, s.pearlGlow0);
+    grad.addColorStop(0.32, s.pearlGlow1);
+    grad.addColorStop(1, s.pearlGlow2);
     gctx.fillStyle = grad;
     gctx.fillRect(0, 0, size, size);
     return c;
@@ -352,11 +367,11 @@ export class KintsugiCanvasEngine {
     c.height = size;
     const gctx = c.getContext('2d')!;
     const half = size * 0.5;
+    const s = this.skin ?? SKIN;
     const grad = gctx.createRadialGradient(half, half, 14, half, half, half);
-    grad.addColorStop(0, 'rgba(255, 240, 195, 0.85)');
-    grad.addColorStop(0.32, 'rgba(217, 65, 54, 0.45)');
-    grad.addColorStop(0.65, 'rgba(230, 184, 92, 0.16)');
-    grad.addColorStop(1, 'rgba(230, 184, 92, 0)');
+    grad.addColorStop(0, 'rgba(138, 106, 46, 0.45)');
+    grad.addColorStop(0.4, 'rgba(122, 36, 28, 0.18)');
+    grad.addColorStop(1, 'rgba(138, 106, 46, 0)');
     gctx.fillStyle = grad;
     gctx.fillRect(0, 0, size, size);
     return c;
@@ -396,6 +411,21 @@ export class KintsugiCanvasEngine {
   public toggleFastForward(): void {
     this.fastForward = !this.fastForward;
     this.emitHud();
+  }
+
+  public setTheme(_theme: VisualTheme): void {
+    this.skin = SKIN;
+    if (this.skin.bgImage) {
+      this.bgImage.src = this.skin.bgImage;
+    } else {
+      this.bgImage.src = '';
+    }
+    this.pearlGlowSprite = this.buildPearlGlowSprite();
+    this.coronaGlowSprite = this.buildCoronaGlowSprite();
+  }
+
+  private font(weight: string, size: number, ui = false): string {
+    return `${weight} ${size}px ${ui ? this.skin.fontUi : this.skin.font}`;
   }
 
   public preparePrologue(): void {
@@ -479,7 +509,7 @@ export class KintsugiCanvasEngine {
   }
 
   public skipClearHold(): void {
-    if (this.phase === 'CLEARED') {
+    if (this.phase === 'CLEARED' && this.transitionTimer < this.clearHoldMax - 0.85) {
       this.transitionTimer = 0;
     }
   }
@@ -550,6 +580,10 @@ export class KintsugiCanvasEngine {
     this.vessels = [];
     this.orbs = [];
     this.guardian = null;
+    this.figureLinks = [];
+    this.stitches = [];
+    this.lastHit = null;
+    this.comboFlash = 0;
     this.chainCount = 0;
     this.killsSinceRecharge = 0;
     this.lightningHitCounter = 0;
@@ -561,7 +595,7 @@ export class KintsugiCanvasEngine {
     this.maxSlashes = slashRank === 0 ? 0 : slashRank >= 5 ? 2 : 1;
     this.slashesLeft = this.maxSlashes;
     this.stringBouncesLeft = this.getMaxStringBounces();
-    this.chapterBannerTimer = bp.whisperHint ? 2.9 : 1.9;
+    this.chapterBannerTimer = bp.whisperHint ? 3.6 : 2.2;
 
     // Spawn `星輪の紋` (`twin_ring`) ONLY if unlocked, with measured split charges!
     const ringCap = this.getRingChargesPerTurn();
@@ -592,31 +626,10 @@ export class KintsugiCanvasEngine {
       });
     }
 
-    switch (bp.archetype) {
-      case 'TUTORIAL_GATE':
-        this.buildTutorialGate(bp);
-        break;
-      case 'TWIN_WINGS':
-        this.buildTwinWings(bp);
-        break;
-      case 'STEPPED_SHRINE':
-        this.buildSteppedShrine(bp);
-        break;
-      case 'VERMILION_CLUSTER':
-        this.buildVermilionCluster(bp);
-        break;
-      case 'GUARDIAN_BOSS':
-        this.buildGuardianBoss(bp);
-        break;
-      case 'FESTIVAL_SHOWER':
-        this.buildFestivalShower(bp);
-        break;
-      case 'ARMORED_BASTION':
-        this.buildArmoredBastion(bp);
-        break;
-      case 'CLOCKWORK_ORBIT':
-        this.buildClockworkOrbit(bp);
-        break;
+    if (bp.archetype === 'GUARDIAN_BOSS') {
+      this.buildGuardianBoss(bp);
+    } else {
+      this.buildConstellationFigure(bp);
     }
 
     this.emitHud();
@@ -629,77 +642,47 @@ export class KintsugiCanvasEngine {
     return padX + col * stepX;
   }
 
-  /** Stage 1: Clean White Porcelain Arch + 1 `+1珠` Orb */
-  private buildTutorialGate(bp: StageBlueprint): void {
-    for (const c of [1, 2, 3, 4]) {
-      this.addVessel(this.colX(c), 112, bp.baseHp, 'OCTAGON', false, false, 0);
-    }
-    for (const c of [1, 4]) {
-      this.addVessel(this.colX(c), 164, bp.baseHp - 1, 'HEXAGON', false, false, 0);
-      this.addVessel(this.colX(c), 216, bp.baseHp - 1, 'DIAMOND', false, false, 0);
-    }
-    this.addOrb(TABLET_W * 0.5, 188, 1);
+  private mapStar(nx: number, ny: number): { x: number; y: number } {
+    return { x: 38 + nx * 314, y: 88 + ny * 292 };
   }
 
-  /** Stage 2: Twin Funnel Wings + 1 `+1珠` Orb */
-  private buildTwinWings(bp: StageBlueprint): void {
-    for (const c of [0, 1, 2, 3, 4, 5]) {
-      this.addVessel(this.colX(c), 108, bp.baseHp + 1, 'OCTAGON', false, false, 0);
-    }
-    for (const c of [0, 1, 4, 5]) {
-      this.addVessel(this.colX(c), 160, bp.baseHp, 'HEXAGON', false, false, 0);
-    }
-    for (const c of [1, 3, 4]) {
-      this.addVessel(this.colX(c), 212, bp.baseHp - 1, 'DISC', false, false, 0);
-    }
-    this.addOrb(this.colX(2.5), 162, 1);
-  }
-
-  /** Stage 3: Stepped Shrine leading up to 1st Ability Awakening! */
-  private buildSteppedShrine(bp: StageBlueprint): void {
-    for (const c of [1, 2, 3, 4]) {
-      this.addVessel(this.colX(c), 104, bp.baseHp + 2, 'OCTAGON', false, false, 0);
-    }
-    for (const c of [0, 2, 3, 5]) {
-      this.addVessel(this.colX(c), 156, bp.baseHp, 'HEXAGON', false, false, 0);
-    }
-    for (const c of [0, 1, 4, 5]) {
-      this.addVessel(this.colX(c), 208, bp.baseHp - 1, 'DIAMOND', false, false, 0);
-    }
-    this.addOrb(this.colX(1), 156, 1);
-    this.addOrb(this.colX(4), 156, 1);
-  }
-
-  /** Stage 4, 9...: Red Vermilion Core Cluster */
-  private buildVermilionCluster(bp: StageBlueprint): void {
-    for (const c of [1, 2, 3, 4]) {
-      this.addVessel(this.colX(c), 106, bp.baseHp + 2, 'OCTAGON', false, false, 0);
-    }
-    for (const c of [0, 1, 2, 3, 4, 5]) {
-      const isBomb = c === 2 || c === 3;
+  private buildConstellationFigure(bp: StageBlueprint): void {
+    const fig = constellationForStage(bp.stage);
+    const ids: number[] = [];
+    const shapes: VesselShape[] = ['DISC', 'HEXAGON', 'OCTAGON', 'DIAMOND'];
+    fig.stars.forEach((star, i) => {
+      const p = this.mapStar(star.x, star.y);
+      const hp = Math.round(bp.baseHp * (star.armored ? 1.7 : star.vermilion ? 0.55 : 1));
       this.addVessel(
-        this.colX(c),
-        158,
-        isBomb ? Math.max(5, Math.round(bp.baseHp * 0.55)) : bp.baseHp,
-        isBomb ? 'DIAMOND' : 'HEXAGON',
-        isBomb,
-        false,
-        0
+        p.x,
+        p.y,
+        hp,
+        star.vermilion ? 'DIAMOND' : star.armored ? 'OCTAGON' : shapes[i % 3],
+        Boolean(star.vermilion),
+        Boolean(star.armored),
+        star.drift ?? 0
+      );
+      ids.push(this.vessels[this.vessels.length - 1].id);
+    });
+    this.figureLinks = fig.edges
+      .filter(([a, b]) => ids[a] && ids[b])
+      .map(([a, b]) => [ids[a], ids[b]]);
+
+    for (const extra of fig.field ?? []) {
+      const p = this.mapStar(extra.x, extra.y);
+      this.addVessel(
+        p.x,
+        p.y,
+        Math.max(3, Math.round(bp.baseHp * 0.7)),
+        extra.vermilion ? 'DIAMOND' : 'DISC',
+        Boolean(extra.vermilion),
+        Boolean(extra.armored),
+        extra.drift ?? 0
       );
     }
-    for (const c of [1, 2, 3, 4]) {
-      const isBomb = c === 1 || c === 4;
-      this.addVessel(
-        this.colX(c),
-        210,
-        isBomb ? Math.max(5, Math.round(bp.baseHp * 0.55)) : bp.baseHp - 1,
-        isBomb ? 'DIAMOND' : 'DISC',
-        isBomb,
-        false,
-        0
-      );
-    }
-    this.addOrb(this.colX(0), 210, 1);
+
+    this.addOrb(TABLET_W * 0.18, 300, 1);
+    if (bp.stage >= 2) this.addOrb(TABLET_W * 0.82, 268, 1);
   }
 
   /**
@@ -723,12 +706,13 @@ export class KintsugiCanvasEngine {
       });
     }
 
+    const fig = constellationForStage(bp.stage);
     const startY = 148;
     this.guardian = {
       id: this.nextId++,
       form: arch.form,
-      title: arch.title,
-      subtitle: arch.subtitle,
+      title: fig.title,
+      subtitle: fig.lucida,
       x: TABLET_W * 0.5,
       y: startY - 22,
       targetY: startY,
@@ -758,6 +742,24 @@ export class KintsugiCanvasEngine {
     }
     this.addOrb(this.colX(0), 108, 1);
     this.addOrb(this.colX(5), 108, 1);
+
+    const ids: number[] = [];
+    fig.stars.slice(0, 4).forEach((star, i) => {
+      const p = this.mapStar(star.x, 0.08 + star.y * 0.22);
+      this.addVessel(
+        p.x,
+        Math.min(92, p.y),
+        Math.round(bp.baseHp * 0.55),
+        i % 2 === 0 ? 'DISC' : 'HEXAGON',
+        false,
+        false,
+        0
+      );
+      ids.push(this.vessels[this.vessels.length - 1].id);
+    });
+    this.figureLinks = fig.edges
+      .filter(([a, b]) => ids[a] && ids[b])
+      .map(([a, b]) => [ids[a], ids[b]]);
     sound.playPorcelainShatter(true);
   }
 
@@ -766,83 +768,6 @@ export class KintsugiCanvasEngine {
     const breachCenterY = SEAL_LINE_Y - this.guardian.armorR;
     const remPx = breachCenterY - this.guardian.targetY;
     return Math.max(1, Math.ceil(remPx / BOSS_DESCENT_Y));
-  }
-
-  /** Stage 6, 11...: Cathartic Fragile Domino Shower */
-  private buildFestivalShower(bp: StageBlueprint): void {
-    for (let r = 0; r < 4; r++) {
-      const y = 98 + r * 46;
-      for (let c = 0; c < 6; c++) {
-        if ((r + c) % 5 === 0) continue;
-        const isBomb = (r === 1 && (c === 1 || c === 4)) || (r === 2 && c === 3);
-        this.addVessel(
-          this.colX(c),
-          y,
-          isBomb ? Math.max(4, Math.round(bp.baseHp * 0.6)) : bp.baseHp,
-          isBomb ? 'DIAMOND' : (['DISC', 'HEXAGON', 'OCTAGON'][(r + c) % 3] as VesselShape),
-          isBomb,
-          false,
-          0
-        );
-      }
-    }
-    this.addOrb(this.colX(0), 144, 1);
-    this.addOrb(this.colX(5), 190, 1);
-  }
-
-  /** Stage 7, 12...: Armored Front Bastion (`重器`) */
-  private buildArmoredBastion(bp: StageBlueprint): void {
-    for (const c of [0, 1, 2, 3, 4, 5]) {
-      this.addVessel(this.colX(c), 104, Math.round(bp.baseHp * 0.8), 'HEXAGON', false, false, 0);
-    }
-    for (const c of [1, 2, 3, 4]) {
-      const isBomb = c === 2 || c === 3;
-      this.addVessel(
-        this.colX(c),
-        156,
-        Math.round(bp.baseHp * (isBomb ? 0.55 : 0.85)),
-        isBomb ? 'DIAMOND' : 'DISC',
-        isBomb,
-        false,
-        0
-      );
-    }
-    for (const c of [1, 2, 3, 4]) {
-      this.addVessel(
-        this.colX(c),
-        214,
-        Math.round(bp.baseHp * 1.95),
-        'OCTAGON',
-        false,
-        true,
-        0
-      );
-    }
-    this.addOrb(this.colX(0), 184, 1);
-    this.addOrb(this.colX(5), 184, 1);
-  }
-
-  /** Stage 8, 13...: Horizontally Gliding Clockwork Rows */
-  private buildClockworkOrbit(bp: StageBlueprint): void {
-    for (let r = 0; r < 4; r++) {
-      const y = 104 + r * 50;
-      const driftVx = (r % 2 === 0 ? 1 : -1) * (22 + r * 3.5);
-      const cols = r % 2 === 0 ? [0, 1, 3, 4] : [1, 2, 4, 5];
-      for (const c of cols) {
-        const isBomb = r === 2 && (c === 2 || c === 4);
-        this.addVessel(
-          this.colX(c),
-          y,
-          isBomb ? Math.round(bp.baseHp * 0.55) : bp.baseHp,
-          isBomb ? 'DIAMOND' : 'DISC',
-          isBomb,
-          false,
-          driftVx
-        );
-      }
-    }
-    this.addOrb(TABLET_W * 0.28, 300, 1);
-    this.addOrb(TABLET_W * 0.72, 300, 1);
   }
 
   private addVessel(
@@ -989,6 +914,8 @@ export class KintsugiCanvasEngine {
     this.phase = 'FLIGHT';
     this.chapterBannerTimer = 0;
     this.chainCount = 0;
+    this.lastHit = null;
+    this.comboFlash = 0;
     this.flightElapsed = 0;
     this.killsSinceRecharge = 0;
     this.nextCradleX = null;
@@ -1094,7 +1021,7 @@ export class KintsugiCanvasEngine {
       y: clampedY,
       r: 6,
       maxR: 108,
-      color: '#F2C464',
+      color: this.skin.gold,
       alpha: 0.96,
       lineWidth: 2.3,
     });
@@ -1126,7 +1053,7 @@ export class KintsugiCanvasEngine {
       p.lastRingId = -1;
     });
 
-    this.spawnWhisper(clampedX, clampedY - 20, '一閃', '#FFF3D1', 16.5);
+    this.spawnWhisper(clampedX, clampedY - 20, '一閃', this.skin.pearlCore, 16.5);
     this.emitHud();
     return true;
   }
@@ -1155,6 +1082,7 @@ export class KintsugiCanvasEngine {
     }
     if (this.shakeTimer > 0) this.shakeTimer = Math.max(0, this.shakeTimer - rawDt);
     if (this.veilAlpha > 0) this.veilAlpha = Math.max(0, this.veilAlpha - rawDt * 1.8);
+    if (this.comboFlash > 0) this.comboFlash = Math.max(0, this.comboFlash - rawDt * 1.6);
     if (this.chainPopScale > 1) {
       this.chainPopScale = Math.max(1, this.chainPopScale - rawDt * 3.5);
     }
@@ -1400,7 +1328,7 @@ export class KintsugiCanvasEngine {
             y: CRADLE_Y + 4,
             r: 3,
             maxR: 26,
-            color: '#F2C464',
+            color: this.skin.gold,
             alpha: 0.75,
             lineWidth: 1.3,
           });
@@ -1428,11 +1356,11 @@ export class KintsugiCanvasEngine {
             y: orb.y,
             r: 4,
             maxR: 44,
-            color: '#FFE394',
+            color: this.skin.gold,
             alpha: 0.95,
             lineWidth: 1.8,
           });
-          this.spawnWhisper(orb.x, orb.y - 8, `珠 +${orb.bonus}`, '#FFE394', 12.5);
+          this.spawnWhisper(orb.x, orb.y - 8, `珠 +${orb.bonus}`, this.skin.gold, 12.5);
           this.spawnEphemeralBurstPearls(orb.x, orb.y, orb.bonus);
         }
       }
@@ -1601,7 +1529,7 @@ export class KintsugiCanvasEngine {
         seg.hitFlash = 1;
         seg.scalePop = 1.15;
 
-        this.incrementChain();
+        this.incrementChain(p.x, p.y);
         this.spawnImpactSparks(p.x, p.y, false);
         sound.playPorcelainChime(this.chainCount, false);
 
@@ -1613,12 +1541,12 @@ export class KintsugiCanvasEngine {
             y: sy,
             r: 5,
             maxR: 54,
-            color: '#F2C464',
+            color: this.skin.gold,
             alpha: 0.95,
             lineWidth: 2,
           });
           sound.playPorcelainShatter(true);
-          this.spawnWhisper(sx, sy - 8, '欠けた', '#FFE394', 12);
+          this.spawnWhisper(sx, sy - 8, '欠けた', this.skin.gold, 12);
           this.spawnEphemeralBurstPearls(sx, sy, 2);
           const fractureShock = Math.max(8, Math.round(g.maxHp * 0.09));
           this.strikeGuardianCore(fractureShock, g.x, g.y, false);
@@ -1710,7 +1638,7 @@ export class KintsugiCanvasEngine {
     v.hitFlash = 1;
     v.scalePop = 1.15;
 
-    this.incrementChain();
+    this.incrementChain(v.x, v.y);
     sound.playPorcelainChime(this.chainCount, isVermilionAccent);
 
     if (v.hp <= 0) {
@@ -1731,7 +1659,7 @@ export class KintsugiCanvasEngine {
           this.killsSinceRecharge = 0;
           if (this.slashesLeft < this.maxSlashes + 1) {
             this.slashesLeft += 1;
-            this.spawnWhisper(vx, vy - 10, '一閃 もどった', '#F2C464', 12);
+            this.spawnWhisper(vx, vy - 10, '一閃 もどった', this.skin.gold, 12);
           }
         }
       }
@@ -1739,7 +1667,7 @@ export class KintsugiCanvasEngine {
       if (wasVermilion) {
         this.hitStopTimer = Math.max(this.hitStopTimer, 0.016);
         const waveDmg = Math.max(2, Math.round(2 + this.stage * 0.28));
-        this.unleashKintsugiWave(vx, vy, 58, waveDmg, '#D94136');
+        this.unleashKintsugiWave(vx, vy, 58, waveDmg, this.skin.vermilion);
       } else if (this.ranks.chain_burst > 0) {
         const cbRank = this.ranks.chain_burst;
         if (cbRank >= 4) {
@@ -1747,7 +1675,7 @@ export class KintsugiCanvasEngine {
         }
         const echoDmg = [0, 1, 2, 4, 6, 9][Math.min(5, cbRank)];
         const echoR = cbRank >= 3 ? 86 : 70;
-        this.unleashKintsugiWave(vx, vy, echoR, echoDmg, '#F2C464');
+        this.unleashKintsugiWave(vx, vy, echoR, echoDmg, this.skin.gold);
       }
     }
   }
@@ -1800,7 +1728,7 @@ export class KintsugiCanvasEngine {
     g.hitFlash = 1;
     g.scalePop = isDirectCore ? 1.09 : 1.04;
 
-    this.incrementChain();
+    this.incrementChain(hx, hy);
     sound.playPorcelainChime(this.chainCount, isDirectCore);
     this.spawnImpactSparks(hx, hy, true);
 
@@ -1814,7 +1742,7 @@ export class KintsugiCanvasEngine {
       this.shakeTimer = 0.36;
       this.shakeAmp = 8.5;
       this.veilAlpha = 0.45;
-      this.veilColor = '#FFF3D1';
+      this.veilColor = this.skin.pearlCore;
 
       this.burstPorcelainShards(gx, gy, 36, true);
       this.ripples.push({
@@ -1822,7 +1750,7 @@ export class KintsugiCanvasEngine {
         y: gy,
         r: 12,
         maxR: 220,
-        color: '#F2C464',
+        color: this.skin.gold,
         alpha: 1,
         lineWidth: 3,
       });
@@ -1831,7 +1759,7 @@ export class KintsugiCanvasEngine {
         y: gy,
         r: 4,
         maxR: 150,
-        color: '#D94136',
+        color: this.skin.vermilion,
         alpha: 0.95,
         lineWidth: 2,
       });
@@ -1839,11 +1767,73 @@ export class KintsugiCanvasEngine {
     }
   }
 
-  private incrementChain(): void {
+  private incrementChain(x?: number, y?: number): void {
     this.chainCount += 1;
-    this.chainPopScale = 1.16;
+    const milestone = MAGNITUDE_MILESTONES.includes(this.chainCount);
+    this.chainPopScale = milestone ? 1.58 : 1.22;
     if (this.chainCount > this.longestChainInRun) {
       this.longestChainInRun = this.chainCount;
+    }
+
+    if (x != null && y != null) {
+      if (this.lastHit) {
+        const dist = Math.hypot(x - this.lastHit.x, y - this.lastHit.y);
+        this.stitches.push({
+          x1: this.lastHit.x,
+          y1: this.lastHit.y,
+          x2: x,
+          y2: y,
+          life: milestone ? 1.8 : Math.min(1.35, 0.55 + dist / 280),
+          maxLife: milestone ? 1.8 : 1.2,
+        });
+        if (this.stitches.length > 48) this.stitches.shift();
+      }
+      this.lastHit = { x, y };
+    }
+
+    if (milestone) {
+      this.comboFlash = 0.42;
+      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= 21 ? 0.08 : 0.045);
+      this.shakeTimer = Math.max(this.shakeTimer, 0.18);
+      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= 34 ? 6 : 3.5);
+      this.veilAlpha = Math.max(this.veilAlpha, 0.12);
+      this.veilColor = this.skin.gold;
+      if (x != null && y != null) {
+        const mag = magnitudeOf(this.chainCount);
+        this.ripples.push({
+          x,
+          y,
+          r: 8,
+          maxR: 90 + this.chainCount,
+          color: this.skin.gold,
+          alpha: 1,
+          lineWidth: 2.4,
+        });
+        this.ripples.push({
+          x,
+          y,
+          r: 3,
+          maxR: 46,
+          color: this.skin.ink,
+          alpha: 0.7,
+          lineWidth: 1,
+        });
+        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= 34 ? 16 : 13);
+        for (let i = 0; i < 10; i++) {
+          const ang = (i / 10) * Math.PI * 2;
+          this.sparks.push({
+            x,
+            y,
+            vx: Math.cos(ang) * (80 + this.chainCount),
+            vy: Math.sin(ang) * (80 + this.chainCount),
+            life: 0.32,
+            maxLife: 0.4,
+            isVermilion: false,
+          });
+        }
+      }
+      if (this.chainCount >= 21) sound.playKintsugiConvergence();
+      else sound.playAstrolabeTwin();
     }
   }
 
@@ -1902,7 +1892,7 @@ export class KintsugiCanvasEngine {
       this.shakeTimer = 0.32;
       this.shakeAmp = 7.5;
       this.veilAlpha = 0.36;
-      this.veilColor = '#D94136';
+      this.veilColor = this.skin.vermilion;
       sound.playPorcelainShatter(true);
 
       if (this.integrity <= 0) {
@@ -1921,7 +1911,7 @@ export class KintsugiCanvasEngine {
           y: SEAL_LINE_Y,
           r: 14,
           maxR: 180,
-          color: '#D94136',
+          color: this.skin.vermilion,
           alpha: 0.95,
           lineWidth: 2.6,
         });
@@ -1930,7 +1920,7 @@ export class KintsugiCanvasEngine {
     } else if (this.guardian) {
       const turnsLeft = this.getGuardianTurnsUntilBreach();
       if (turnsLeft === 2) {
-        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '敷居まで あと2手', '#F2C464', 13);
+        this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, '敷居まで あと2手', this.skin.gold, 13);
       } else if (turnsLeft === 1) {
         this.spawnWhisper(this.guardian.x, this.guardian.targetY + 72, 'いま、敷居の前', '#FF7A6E', 14);
       }
@@ -1964,12 +1954,13 @@ export class KintsugiCanvasEngine {
     }
 
     this.phase = 'CLEARED';
-    this.transitionTimer = bossJustCleared ? 2.35 : 1.65;
+    this.clearHoldMax = bossJustCleared ? 16 : 12;
+    this.transitionTimer = this.clearHoldMax;
     this.clearBurstTimer = 0.9;
     this.shakeTimer = Math.max(this.shakeTimer, 0.22);
     this.shakeAmp = Math.max(this.shakeAmp, bossJustCleared ? 7 : 4);
     this.veilAlpha = bossJustCleared ? 0.28 : 0.16;
-    this.veilColor = '#FFF3D1';
+    this.veilColor = this.skin.pearlCore;
 
     for (let i = 0; i < (bossJustCleared ? 4 : 2); i++) {
       this.ripples.push({
@@ -1977,7 +1968,7 @@ export class KintsugiCanvasEngine {
         y: TABLET_H * 0.42 + (Math.random() - 0.5) * 24,
         r: 10 + i * 6,
         maxR: 120 + i * 40,
-        color: i % 2 === 0 ? '#E6B85C' : '#F3D89A',
+        color: i % 2 === 0 ? this.skin.gold : this.skin.pearlCore,
         alpha: 0.9,
         lineWidth: 2.2 - i * 0.3,
       });
@@ -1999,6 +1990,9 @@ export class KintsugiCanvasEngine {
     this.cb.onStageCleared({
       stage: this.stage,
       title: this.currentBlueprint.title,
+      latin: this.currentBlueprint.latin,
+      lucida: this.currentBlueprint.lucida,
+      season: this.currentBlueprint.season,
       isBoss: bossJustCleared,
       pearlCount: this.getBasePearlCount(),
       chain: this.chainCount,
@@ -2122,6 +2116,11 @@ export class KintsugiCanvasEngine {
       if (this.seams[i].life <= 0) this.seams.splice(i, 1);
     }
 
+    for (let i = this.stitches.length - 1; i >= 0; i--) {
+      this.stitches[i].life -= dt;
+      if (this.stitches[i].life <= 0) this.stitches.splice(i, 1);
+    }
+
     for (let i = this.callouts.length - 1; i >= 0; i--) {
       const c = this.callouts[i];
       c.y += c.vy * dt;
@@ -2156,7 +2155,7 @@ export class KintsugiCanvasEngine {
     this.cb.onStateChange({
       phase: this.phase,
       stage: this.stage,
-      stageLabel: formatStageLabel(this.stage),
+      stageLabel: this.currentBlueprint.latin,
       stageTitle: this.currentBlueprint.title,
       awakeningSeals: this.awakeningSeals,
       sealsNeeded: SEALS_PER_AWAKENING,
@@ -2192,17 +2191,40 @@ export class KintsugiCanvasEngine {
       );
     }
 
-    ctx.fillStyle = '#081018';
+    ctx.fillStyle = this.skin.bg;
     ctx.fillRect(0, 0, TABLET_W, TABLET_H);
 
-    if (this.bgImage.complete && this.bgImage.naturalWidth > 0) {
-      ctx.globalAlpha = 0.94;
+    if (this.skin.bgImage && this.bgImage.complete && this.bgImage.naturalWidth > 0) {
+      ctx.globalAlpha = this.skin.bgAlpha;
       ctx.drawImage(this.bgImage, 0, 0, TABLET_W, TABLET_H);
       ctx.globalAlpha = 1;
     }
 
+    if (false) {
+      ctx.strokeStyle = this.skin.goldSoft;
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(28, 36);
+      ctx.lineTo(TABLET_W - 28, 36);
+      ctx.moveTo(28, TABLET_H - 36);
+      ctx.lineTo(TABLET_W - 28, TABLET_H - 36);
+      ctx.stroke();
+    } else if (false) {
+      ctx.strokeStyle = 'rgba(232, 164, 40, 0.22)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, TABLET_W - 20, TABLET_H - 20);
+      ctx.strokeStyle = 'rgba(180, 170, 150, 0.16)';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(6, 6, TABLET_W - 12, TABLET_H - 12);
+    } else {
+      ctx.strokeStyle = 'rgba(44, 36, 22, 0.28)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(14, 14, TABLET_W - 28, TABLET_H - 28);
+      ctx.strokeRect(18, 18, TABLET_W - 36, TABLET_H - 36);
+    }
+
     for (const m of this.dust) {
-      ctx.fillStyle = '#E6B85C';
+      ctx.fillStyle = this.skin.dust;
       ctx.globalAlpha = m.alpha * (0.65 + 0.35 * Math.sin(this.timeSec * 2 + m.phase));
       ctx.beginPath();
       ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
@@ -2210,22 +2232,28 @@ export class KintsugiCanvasEngine {
     }
     ctx.globalAlpha = 1;
 
-    if (this.phase === 'FLIGHT' && this.chainCount >= 4) {
+    if (this.phase === 'FLIGHT' && this.chainCount >= 3) {
+      const mag = magnitudeOf(this.chainCount);
       ctx.save();
-      ctx.translate(TABLET_W * 0.5, TABLET_H * 0.48);
+      ctx.translate(TABLET_W * 0.5, TABLET_H * 0.46);
       ctx.scale(this.chainPopScale, this.chainPopScale);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle =
-        this.chainCount >= 90
-          ? 'rgba(255, 240, 194, 0.34)'
-          : this.chainCount >= 35
-          ? 'rgba(212, 162, 74, 0.24)'
-          : 'rgba(234, 217, 192, 0.14)';
-      ctx.font = '600 68px "Klee One", "Hiragino Maru Gothic ProN", serif';
+      ctx.globalAlpha = 0.16 + Math.min(0.22, this.chainCount / 200) + this.comboFlash * 0.35;
+      ctx.strokeStyle = this.skin.gold;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 4, 52 + this.comboFlash * 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = this.skin.ink;
+      ctx.font = this.font('600', 64, true);
+      ctx.globalAlpha = 0.2 + this.comboFlash * 0.45;
       ctx.fillText(`${this.chainCount}`, 0, 0);
-      ctx.font = '400 13px "Klee One", "Hiragino Maru Gothic ProN", serif';
-      ctx.fillText(this.chainCount >= 90 ? '名人' : this.chainCount >= 35 ? '巧い' : '上手', 0, 42);
+      ctx.globalAlpha = 0.55 + this.comboFlash * 0.4;
+      ctx.font = this.font('500', 13, true);
+      ctx.fillText(mag.la, 0, 38);
+      ctx.font = this.font('400', 12);
+      ctx.fillText(mag.jp, 0, 54);
       ctx.restore();
     }
 
@@ -2235,28 +2263,45 @@ export class KintsugiCanvasEngine {
       const isUrgent = bossTurns !== null && bossTurns <= 2;
       const pulse = isUrgent ? 0.72 + 0.28 * Math.sin(this.timeSec * 6.5) : 0.42;
       ctx.save();
-      ctx.strokeStyle = `rgba(90, 58, 32, 0.7)`;
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(18, SEAL_LINE_Y);
-      ctx.lineTo(TABLET_W - 18, SEAL_LINE_Y);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(196, 69, 54, ${pulse.toFixed(2)})`;
-      ctx.lineWidth = isUrgent ? 2.2 : 1.3;
-      ctx.beginPath();
-      ctx.moveTo(22, SEAL_LINE_Y - 1);
-      ctx.lineTo(TABLET_W - 22, SEAL_LINE_Y - 1);
-      ctx.stroke();
+      if (false) {
+        ctx.strokeStyle = isUrgent ? `rgba(180, 60, 50, ${pulse.toFixed(2)})` : this.skin.goldSoft;
+        ctx.lineWidth = isUrgent ? 1.2 : 0.7;
+        ctx.beginPath();
+        ctx.moveTo(24, SEAL_LINE_Y);
+        ctx.lineTo(TABLET_W - 24, SEAL_LINE_Y);
+        ctx.stroke();
+      } else if (false) {
+        ctx.strokeStyle = isUrgent ? `rgba(255, 90, 60, ${pulse.toFixed(2)})` : 'rgba(232, 164, 40, 0.55)';
+        ctx.shadowColor = this.skin.gold;
+        ctx.shadowBlur = isUrgent ? 10 : 4;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(18, SEAL_LINE_Y);
+        ctx.lineTo(TABLET_W - 18, SEAL_LINE_Y);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = isUrgent ? `rgba(122, 36, 28, ${pulse.toFixed(2)})` : 'rgba(44, 36, 22, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(22, SEAL_LINE_Y);
+        ctx.lineTo(TABLET_W - 22, SEAL_LINE_Y);
+        ctx.stroke();
+        ctx.setLineDash([2, 6]);
+        ctx.beginPath();
+        ctx.moveTo(22, SEAL_LINE_Y + 3);
+        ctx.lineTo(TABLET_W - 22, SEAL_LINE_Y + 3);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
     // Bottom Horizon `天球の弦` (`sky_string`)
     if (this.stringBouncesLeft > 0) {
       ctx.save();
-      ctx.strokeStyle = '#E6B85C';
-      ctx.shadowColor = '#E6B85C';
-      ctx.shadowBlur = 8;
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = this.skin.gold;
+      ctx.shadowColor = this.skin.gold;
+      ctx.shadowBlur = false ? 10 : false ? 0 : 3;
+      ctx.lineWidth = false ? 1 : 1.6;
       ctx.beginPath();
       ctx.moveTo(22, CRADLE_Y + 4);
       ctx.lineTo(TABLET_W - 22, CRADLE_Y + 4);
@@ -2264,27 +2309,41 @@ export class KintsugiCanvasEngine {
       ctx.restore();
     }
 
-    // Collectible `+1珠` Orbs
     for (const o of this.orbs) {
       const pulse = 1 + Math.sin(o.phase) * 0.08;
       ctx.save();
       ctx.translate(o.x, o.y);
       ctx.scale(pulse, pulse);
-      ctx.drawImage(this.pearlGlowSprite, -15, -15, 30, 30);
-      ctx.strokeStyle = '#FFE394';
-      ctx.lineWidth = 1.3;
+      if (false) {
+        ctx.drawImage(this.pearlGlowSprite, -15, -15, 30, 30);
+      }
+      if (this.skin.orbFill !== 'transparent') {
+        ctx.fillStyle = this.skin.orbFill;
+        ctx.beginPath();
+        ctx.arc(0, 0, o.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = this.skin.orbStroke;
+      ctx.lineWidth = false ? 1 : 1.4;
       ctx.beginPath();
       ctx.arc(0, 0, o.r, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.fillStyle = '#FFFDF5';
-      ctx.font = '500 10px "Klee One", "Hiragino Maru Gothic ProN", serif';
+      if (true) {
+        ctx.beginPath();
+        ctx.moveTo(0, -o.r - 3);
+        ctx.lineTo(0, o.r + 3);
+        ctx.moveTo(-o.r - 3, 0);
+        ctx.lineTo(o.r + 3, 0);
+        ctx.stroke();
+      }
+      ctx.fillStyle = this.skin.orbText;
+      ctx.font = this.font('500', 10, false);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`+${o.bonus}珠`, 0, 0.5);
+      ctx.fillText(false ? `+${o.bonus}` : `+${o.bonus}珠`, 0, 0.5);
       ctx.restore();
     }
 
-    // `星輪の紋` Rings (Shows remaining split charges cleanly!)
     for (const r of this.rings) {
       if (r.charges <= 0) continue;
       ctx.save();
@@ -2292,10 +2351,10 @@ export class KintsugiCanvasEngine {
 
       ctx.save();
       ctx.rotate(r.phase);
-      ctx.strokeStyle = r.flash > 0 ? '#FFF7DF' : '#E6B85C';
-      ctx.shadowColor = '#E6B85C';
-      ctx.shadowBlur = 7 + r.flash * 12;
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = r.flash > 0 ? this.skin.pearlCore : this.skin.gold;
+      ctx.shadowColor = this.skin.gold;
+      ctx.shadowBlur = false ? 0 : 6 + r.flash * 10;
+      ctx.lineWidth = false ? 1 : 1.6;
       ctx.beginPath();
       ctx.arc(0, 0, r.r, 0, Math.PI * 2);
       ctx.stroke();
@@ -2305,8 +2364,9 @@ export class KintsugiCanvasEngine {
       ctx.arc(0, 0, r.r - 4.5, 0, Math.PI * 2);
       ctx.stroke();
 
-      for (let t = 0; t < 4; t++) {
-        const a = (t * Math.PI) / 2;
+      const ticks = true ? 8 : 4;
+      for (let t = 0; t < ticks; t++) {
+        const a = (t * Math.PI * 2) / ticks;
         ctx.beginPath();
         ctx.moveTo(Math.cos(a) * (r.r - 6.5), Math.sin(a) * (r.r - 6.5));
         ctx.lineTo(Math.cos(a) * (r.r + 3.5), Math.sin(a) * (r.r + 3.5));
@@ -2314,15 +2374,47 @@ export class KintsugiCanvasEngine {
       }
       ctx.restore();
 
-      ctx.fillStyle = r.flash > 0 ? '#FFFDF5' : '#F2C464';
-      ctx.font = '500 11px "Klee One", "Hiragino Maru Gothic ProN", serif';
+      ctx.fillStyle = r.flash > 0 ? this.skin.pearlCore : this.skin.gold;
+      ctx.font = this.font('500', 11, false);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`×${r.charges}`, 0, 0.5);
       ctx.restore();
     }
 
-    // Porcelain Vessels
+    if (this.figureLinks.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(44, 36, 22, 0.28)';
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([1.5, 4]);
+      ctx.beginPath();
+      for (const [a, b] of this.figureLinks) {
+        const va = this.vessels.find((v) => v.id === a);
+        const vb = this.vessels.find((v) => v.id === b);
+        if (!va || !vb) continue;
+        ctx.moveTo(va.x, va.y);
+        ctx.lineTo(vb.x, vb.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.stitches.length > 0) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (const st of this.stitches) {
+        const a = Math.max(0, st.life / st.maxLife);
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = this.skin.gold;
+        ctx.lineWidth = 1.2 + (1 - a) * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(st.x1, st.y1);
+        ctx.lineTo(st.x2, st.y2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     for (const v of this.vessels) {
       this.drawPorcelainVessel(ctx, v);
     }
@@ -2337,8 +2429,8 @@ export class KintsugiCanvasEngine {
       const alpha = Math.max(0, s.life / s.maxLife);
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.strokeStyle = '#F6D379';
-      ctx.lineWidth = 1.7;
+      ctx.strokeStyle = this.skin.gold;
+      ctx.lineWidth = false ? 1 : 1.7;
       ctx.beginPath();
       ctx.moveTo(s.x1, s.y1);
       ctx.lineTo(s.x2, s.y2);
@@ -2352,9 +2444,9 @@ export class KintsugiCanvasEngine {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = Math.max(0, arc.life / arc.maxLife);
-      ctx.strokeStyle = '#FFF5CC';
-      ctx.shadowColor = '#F2C464';
-      ctx.shadowBlur = 10;
+      ctx.strokeStyle = this.skin.pearlCore;
+      ctx.shadowColor = this.skin.gold;
+      ctx.shadowBlur = false ? 0 : 10;
       ctx.lineWidth = 2.0;
       ctx.beginPath();
       ctx.moveTo(arc.pts[0].x, arc.pts[0].y);
@@ -2374,11 +2466,11 @@ export class KintsugiCanvasEngine {
     // Batched Golden Pearls & Additive Sunlight Bloom
     if (this.pearls.length > 0) {
       ctx.save();
-      ctx.strokeStyle = '#E6B85C';
+      ctx.strokeStyle = this.skin.pearlTrail;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.globalAlpha = 0.46;
-      ctx.lineWidth = 2.4;
+      ctx.globalAlpha = false ? 0.7 : 0.5;
+      ctx.lineWidth = false ? 1.4 : 2.2;
       ctx.beginPath();
       for (let i = 0; i < this.pearls.length; i++) {
         const rib = this.pearls[i].ribbon;
@@ -2391,22 +2483,23 @@ export class KintsugiCanvasEngine {
       ctx.stroke();
       ctx.restore();
 
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const sprSize = 24;
+      const sprSize = this.skin.glowSize;
       const halfSpr = sprSize * 0.5;
+      ctx.save();
+      if (this.skin.additivePearls) ctx.globalCompositeOperation = 'lighter';
       for (let i = 0; i < this.pearls.length; i++) {
         const p = this.pearls[i];
         ctx.drawImage(this.pearlGlowSprite, p.x - halfSpr, p.y - halfSpr, sprSize, sprSize);
       }
       ctx.restore();
 
-      ctx.fillStyle = '#FFFDF5';
+      ctx.fillStyle = this.skin.pearlCore;
       ctx.beginPath();
       for (let i = 0; i < this.pearls.length; i++) {
         const p = this.pearls[i];
-        ctx.moveTo(p.x + p.r * 0.72, p.y);
-        ctx.arc(p.x, p.y, p.r * 0.72, 0, Math.PI * 2);
+        const pr = true ? p.r * 0.85 : p.r * 0.72;
+        ctx.moveTo(p.x + pr, p.y);
+        ctx.arc(p.x, p.y, pr, 0, Math.PI * 2);
       }
       ctx.fill();
     }
@@ -2418,7 +2511,7 @@ export class KintsugiCanvasEngine {
       for (let i = 0; i < this.sparks.length; i++) {
         const sp = this.sparks[i];
         ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
-        ctx.strokeStyle = sp.isVermilion ? '#FF5E4D' : '#FFE394';
+        ctx.strokeStyle = sp.isVermilion ? this.skin.vermilion : this.skin.spark;
         ctx.lineWidth = 1.4;
         ctx.beginPath();
         ctx.moveTo(sp.x, sp.y);
@@ -2445,10 +2538,10 @@ export class KintsugiCanvasEngine {
       ctx.translate(sh.x, sh.y);
       ctx.rotate(sh.rot);
       ctx.fillStyle = sh.isVermilion
-        ? '#D94136'
+        ? this.skin.vermilion
         : sh.isGold
-        ? '#E6B85C'
-        : '#EFEAE0';
+        ? this.skin.shardGold
+        : this.skin.shard;
       ctx.beginPath();
       ctx.moveTo(0, -sh.size);
       ctx.lineTo(sh.size * 0.85, sh.size * 0.5);
@@ -2461,7 +2554,7 @@ export class KintsugiCanvasEngine {
     for (const c of this.callouts) {
       ctx.save();
       ctx.globalAlpha = Math.max(0, c.life / c.maxLife);
-      ctx.font = `500 ${c.size}px "Klee One", "Hiragino Maru Gothic ProN", serif`;
+      ctx.font = this.font('500', c.size);
       ctx.textAlign = 'center';
       ctx.fillStyle = c.color;
       ctx.fillText(c.text, c.x, c.y);
@@ -2474,49 +2567,34 @@ export class KintsugiCanvasEngine {
       ctx.globalAlpha = 0.28 * Math.min(1, pop);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#F3D89A';
-      ctx.font = '600 92px "Klee One", "Hiragino Maru Gothic ProN", serif';
-      ctx.fillText('継', TABLET_W * 0.5, TABLET_H * 0.36);
+      ctx.fillStyle = this.skin.gold;
+      ctx.font = this.font('400', 88);
+      ctx.fillText('縫', TABLET_W * 0.5, TABLET_H * 0.36);
       ctx.restore();
     }
 
     if (this.chapterBannerTimer > 0 && this.phase === 'AIMING') {
-      const maxT = this.currentBlueprint.whisperHint ? 2.9 : 1.9;
+      const maxT = this.currentBlueprint.whisperHint ? 3.6 : 2.2;
       const a =
         Math.min(1, this.chapterBannerTimer * 1.2) *
         Math.min(1, (maxT - this.chapterBannerTimer) * 3.5 + 0.2);
-      const hasHint = Boolean(this.currentBlueprint.whisperHint);
-      const slipW = 228;
-      const slipH = hasHint ? 74 : 54;
-      const slipX = TABLET_W * 0.5 - slipW * 0.5;
-      const slipY = 454;
       ctx.save();
       ctx.globalAlpha = Math.max(0, Math.min(0.96, a));
-      ctx.translate(TABLET_W * 0.5, slipY + slipH * 0.5);
-      ctx.rotate(-0.018);
-      ctx.translate(-TABLET_W * 0.5, -(slipY + slipH * 0.5));
-      ctx.fillStyle = 'rgba(234, 217, 192, 0.94)';
-      ctx.beginPath();
-      ctx.moveTo(slipX + 8, slipY);
-      ctx.lineTo(slipX + slipW, slipY + 3);
-      ctx.lineTo(slipX + slipW - 6, slipY + slipH);
-      ctx.lineTo(slipX, slipY + slipH - 4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(90, 58, 32, 0.18)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#8a6420';
-      ctx.font = '500 11px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
-      ctx.fillText(formatStageLabel(this.stage), TABLET_W * 0.5, slipY + 18);
-      ctx.fillStyle = '#1c1712';
-      ctx.font = '600 18px "Klee One", "Hiragino Maru Gothic ProN", serif';
-      ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, slipY + (hasHint ? 40 : 38));
+      ctx.fillStyle = this.skin.gold;
+      ctx.font = this.font('400', 11, true);
+      ctx.fillText(
+        `${stageCaption(this.stage)}  ·  ${this.currentBlueprint.latin}`,
+        TABLET_W * 0.5,
+        470
+      );
+      ctx.fillStyle = this.skin.ink;
+      ctx.font = this.font('400', 22);
+      ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, 498);
       if (this.currentBlueprint.whisperHint) {
-        ctx.fillStyle = '#5c4a32';
-        ctx.font = '400 12px "Klee One", "Hiragino Maru Gothic ProN", serif';
-        ctx.fillText(this.currentBlueprint.whisperHint, TABLET_W * 0.5, slipY + 60);
+        ctx.fillStyle = 'rgba(44,36,22,0.62)';
+        ctx.font = this.font('400', 11);
+        ctx.fillText(this.currentBlueprint.whisperHint, TABLET_W * 0.5, 522);
       }
       ctx.restore();
     }
@@ -2669,7 +2747,7 @@ export class KintsugiCanvasEngine {
       ctx.fillStyle = pGrad;
       ctx.fill();
 
-      ctx.strokeStyle = dmgRatio > 0.35 ? '#E6B85C' : '#C2B7A3';
+      ctx.strokeStyle = dmgRatio > 0.35 ? this.skin.gold : '#C2B7A3';
       ctx.lineWidth = 1.4;
       ctx.stroke();
 
@@ -2685,7 +2763,7 @@ export class KintsugiCanvasEngine {
 
       // Spreading 24K Kintsugi fracture veins when damaged
       if (dmgRatio > 0.08) {
-        ctx.strokeStyle = '#D94136';
+        ctx.strokeStyle = this.skin.vermilion;
         ctx.lineWidth = 1.2 + dmgRatio * 0.8;
         ctx.beginPath();
         ctx.moveTo(-4, -10);
@@ -2778,14 +2856,14 @@ export class KintsugiCanvasEngine {
       ctx.stroke();
 
       // Gold & Vermilion central rib + side veins
-      ctx.strokeStyle = dmgRatio > 0.25 ? '#D94136' : '#C99B3B';
+      ctx.strokeStyle = dmgRatio > 0.25 ? this.skin.vermilion : '#C99B3B';
       ctx.lineWidth = 1.1;
       ctx.beginPath();
       ctx.moveTo(-12, 0);
       ctx.lineTo(19, 0);
       ctx.stroke();
 
-      ctx.fillStyle = '#D94136';
+      ctx.fillStyle = this.skin.vermilion;
       ctx.beginPath();
       ctx.arc(-4, 0, 2.2, 0, Math.PI * 2);
       ctx.fill();
@@ -2853,11 +2931,11 @@ export class KintsugiCanvasEngine {
 
       ctx.fillStyle = seg.hitFlash > 0.25 ? '#FFFDF9' : '#F6F1E7';
       ctx.fill();
-      ctx.strokeStyle = '#E6B85C';
+      ctx.strokeStyle = this.skin.gold;
       ctx.lineWidth = 1.3;
       ctx.stroke();
 
-      ctx.fillStyle = '#D94136';
+      ctx.fillStyle = this.skin.vermilion;
       ctx.beginPath();
       ctx.arc(0, 0, 2.4, 0, Math.PI * 2);
       ctx.fill();
@@ -2878,7 +2956,7 @@ export class KintsugiCanvasEngine {
     for (let i = 0; i < 16; i++) {
       const a = (i / 16) * Math.PI * 2;
       const rOuter = i % 2 === 0 ? g.coreR + 12 + Math.sin(g.breathPhase * 3 + i) * 3 : g.coreR + 6;
-      ctx.strokeStyle = i % 2 === 0 ? '#F2C464' : '#D94136';
+      ctx.strokeStyle = i % 2 === 0 ? this.skin.gold : this.skin.vermilion;
       ctx.lineWidth = i % 2 === 0 ? 1.4 : 0.9;
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * g.coreR, Math.sin(a) * g.coreR);
@@ -2925,7 +3003,7 @@ export class KintsugiCanvasEngine {
     ctx.restore();
 
     // Outer 24K Gold Diamond-Ring Eclipse Rim
-    ctx.strokeStyle = g.hitFlash > 0.2 ? '#FFFDF5' : '#FFE394';
+    ctx.strokeStyle = g.hitFlash > 0.2 ? '#FFFDF5' : this.skin.gold;
     ctx.lineWidth = 2.2;
     ctx.beginPath();
     ctx.arc(0, 0, g.coreR, 0, Math.PI * 2);
@@ -2933,7 +3011,7 @@ export class KintsugiCanvasEngine {
 
     // Crisp Ceremonial Core HP Numeral
     ctx.fillStyle = '#FFF7E2';
-    ctx.font = '500 14px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
+    ctx.font = this.font('500', 14);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${Math.max(0, g.hp)}`, 0, 1);
@@ -2946,17 +3024,18 @@ export class KintsugiCanvasEngine {
 
     const r = v.radius;
     const damageRatio = 1 - Math.max(0, v.hp / v.maxHp);
+    const s = this.skin;
 
     const grad = ctx.createLinearGradient(-r, -r, r, r);
     if (v.hitFlash > 0.25) {
-      grad.addColorStop(0, '#FFFDF9');
-      grad.addColorStop(1, '#FCE6AC');
+      grad.addColorStop(0, s.vesselHitHi);
+      grad.addColorStop(1, s.vesselHitLo);
     } else if (v.isArmored) {
-      grad.addColorStop(0, '#DED7C8');
-      grad.addColorStop(1, '#B8AF9E');
+      grad.addColorStop(0, s.vesselArmorHi);
+      grad.addColorStop(1, s.vesselArmorLo);
     } else {
-      grad.addColorStop(0, '#F7F3EB');
-      grad.addColorStop(1, '#DBD2C2');
+      grad.addColorStop(0, s.vesselHi);
+      grad.addColorStop(1, s.vesselLo);
     }
 
     this.traceVesselPath(ctx, v.shape, r);
@@ -2964,28 +3043,47 @@ export class KintsugiCanvasEngine {
     ctx.fill();
 
     ctx.strokeStyle = v.isVermilion
-      ? '#D94136'
+      ? s.vermilion
       : v.isArmored
-      ? '#D4A243'
+      ? s.gold
       : damageRatio > 0.4
-      ? '#E6B85C'
-      : 'rgba(180, 168, 148, 0.85)';
-    ctx.lineWidth = v.isArmored ? 2.6 : v.isVermilion ? 1.8 : 1.2;
+      ? s.crack
+      : s.vesselStroke;
+    ctx.lineWidth = v.isArmored ? s.vesselLine + 1 : v.isVermilion ? s.vesselLine + 0.4 : s.vesselLine;
     ctx.stroke();
 
     this.traceVesselPath(ctx, v.shape, r * 0.76);
-    ctx.strokeStyle = v.isArmored
-      ? 'rgba(40, 34, 28, 0.55)'
-      : 'rgba(120, 110, 96, 0.24)';
-    ctx.lineWidth = v.isArmored ? 1.2 : 0.7;
+    ctx.strokeStyle = s.vesselInner;
+    ctx.lineWidth = v.isArmored ? 1.1 : 0.6;
     ctx.stroke();
+
+    if (true) {
+      ctx.strokeStyle = 'rgba(44, 36, 22, 0.18)';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.55);
+      ctx.lineTo(0, r * 0.55);
+      ctx.moveTo(-r * 0.55, 0);
+      ctx.lineTo(r * 0.55, 0);
+      ctx.stroke();
+    }
+
+    if (false && v.hitFlash > 0.1) {
+      ctx.shadowColor = s.gold;
+      ctx.shadowBlur = 12;
+      this.traceVesselPath(ctx, v.shape, r);
+      ctx.strokeStyle = s.gold;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
 
     if (damageRatio > 0.04) {
       ctx.save();
       this.traceVesselPath(ctx, v.shape, r);
       ctx.clip();
-      ctx.strokeStyle = '#E6B85C';
-      ctx.lineWidth = 1.1 + damageRatio * 1.2;
+      ctx.strokeStyle = s.crack;
+      ctx.lineWidth = (false ? 0.7 : 1.05) + damageRatio * 1.1;
       const activeBranches = Math.ceil(damageRatio * v.cracks.length);
       for (let b = 0; b < activeBranches; b++) {
         const br = v.cracks[b];
@@ -3001,14 +3099,14 @@ export class KintsugiCanvasEngine {
     }
 
     if (v.isVermilion) {
-      ctx.fillStyle = 'rgba(217, 65, 54, 0.18)';
+      ctx.fillStyle = s.bombFill;
       ctx.beginPath();
       ctx.arc(0, 0, r * 0.52, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.fillStyle = v.isVermilion ? '#B6291F' : '#221E1A';
-    ctx.font = '500 12px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
+    ctx.fillStyle = v.isVermilion ? s.hpBomb : s.hp;
+    ctx.font = this.font('500', 12, false);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${v.hp}`, 0, 0.5);
@@ -3118,11 +3216,11 @@ export class KintsugiCanvasEngine {
     pts.push({ x: rx, y: ry });
 
     ctx.save();
-    ctx.strokeStyle = this.isDrawingThread ? '#F2C464' : 'rgba(230, 184, 92, 0.42)';
-    ctx.shadowColor = '#E6B85C';
-    ctx.shadowBlur = this.isDrawingThread ? 10 : 4;
-    ctx.lineWidth = this.isDrawingThread ? 1.8 : 1.1;
-    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = this.isDrawingThread ? this.skin.aim : this.skin.aimIdle;
+    ctx.shadowColor = this.skin.gold;
+    ctx.shadowBlur = false ? 0 : this.isDrawingThread ? 8 : 3;
+    ctx.lineWidth = this.isDrawingThread ? this.skin.aimWidth + 0.4 : this.skin.aimWidth;
+    ctx.setLineDash(true ? [2, 6] : false ? [3, 7] : [4, 6]);
     ctx.lineDashOffset = -this.timeSec * 34;
 
     ctx.beginPath();
@@ -3147,37 +3245,46 @@ export class KintsugiCanvasEngine {
     ctx.save();
     ctx.translate(cx, cy);
 
-    ctx.strokeStyle = 'rgba(212, 162, 74, 0.82)';
-    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = this.skin.gold;
+    ctx.lineWidth = false ? 1.1 : 1.7;
     ctx.beginPath();
-    ctx.ellipse(0, 6, 16, 9, 0, Math.PI * 0.08, Math.PI * 0.92);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(0, 2, 13, 6, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(212, 162, 74, 0.35)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    if (false) {
+      ctx.moveTo(-18, 2);
+      ctx.lineTo(-12, 10);
+      ctx.lineTo(12, 10);
+      ctx.lineTo(18, 2);
+      ctx.stroke();
+    } else {
+      ctx.ellipse(0, 6, 16, 9, 0, Math.PI * 0.08, Math.PI * 0.92);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 13, 6, 0, 0, Math.PI * 2);
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
 
     if (this.phase === 'PROLOGUE' || this.phase === 'AIMING') {
       const pulse = 1 + Math.sin(this.timeSec * 3.4) * 0.08;
       ctx.scale(pulse, pulse);
       ctx.drawImage(this.pearlGlowSprite, -15, -19, 30, 30);
-      ctx.fillStyle = '#FFF8E3';
+      ctx.fillStyle = this.skin.pearlCore;
       ctx.beginPath();
       ctx.arc(0, -4, 6.2, 0, Math.PI * 2);
       ctx.fill();
 
       if (this.phase === 'AIMING') {
-        ctx.fillStyle = '#F2C464';
-        ctx.font = '600 12px "Klee One", "Hiragino Maru Gothic ProN", serif';
+        ctx.fillStyle = this.skin.gold;
+        ctx.font = this.font('600', 12, false);
         ctx.textAlign = 'center';
         ctx.fillText(`×${this.getBasePearlCount()}`, 0, 30);
       }
     } else if (this.phase === 'FLIGHT' && this.launchQueue > 0) {
-      ctx.fillStyle = 'rgba(242, 196, 100, 0.78)';
-      ctx.font = '400 11px "Klee One", serif';
+      ctx.fillStyle = this.skin.gold;
+      ctx.font = this.font('400', 11, false);
       ctx.textAlign = 'center';
-      ctx.fillText(`あと ${this.launchQueue}`, 0, 28);
+      ctx.fillText(false ? `${this.launchQueue}` : `あと ${this.launchQueue}`, 0, 28);
     }
     ctx.restore();
   }
