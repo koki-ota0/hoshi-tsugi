@@ -2,7 +2,7 @@
  * Headless capture of 星継 playfield clips (no browser).
  * Writes WebP/GIF under recordings/<stamp>/ for later SNS edit.
  */
-import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
+import { createCanvas, loadImage, GlobalFonts, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -122,7 +122,27 @@ function cropAnim(
   });
 }
 
+function registerDemoFonts(): void {
+  const faces: Array<[string, string]> = [
+    ['@fontsource/zen-old-mincho/files/zen-old-mincho-japanese-400-normal.woff', 'Zen Old Mincho'],
+    ['@fontsource/zen-old-mincho/files/zen-old-mincho-japanese-600-normal.woff', 'Zen Old Mincho'],
+    ['@fontsource/cormorant-garamond/files/cormorant-garamond-latin-500-normal.woff', 'Cormorant Garamond'],
+    ['@fontsource/cormorant-garamond/files/cormorant-garamond-latin-400-normal.woff', 'Cormorant Garamond'],
+  ];
+  for (const [rel, family] of faces) {
+    const abs = path.join(ROOT, 'node_modules', rel);
+    if (fs.existsSync(abs)) {
+      try {
+        GlobalFonts.registerFromPath(abs, family);
+      } catch {
+        /* woff may be unsupported; demos still run */
+      }
+    }
+  }
+}
+
 async function main(): Promise<void> {
+  registerDemoFonts();
   const stamp =
     process.env.DEMO_STAMP ??
     `${new Date().toISOString().slice(0, 10)}-${(process.env.DEMO_SHA ?? 'dev').slice(0, 7)}`;
@@ -214,12 +234,65 @@ async function main(): Promise<void> {
         shoot();
       },
     },
+    {
+      name: '10-chart-vessels',
+      frames: 56,
+      setup: () => {
+        engine.beginRun(1, false);
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.55;
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+      },
+      tick: (i) => {
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.5 - Math.sin(i / 7) * 0.22;
+      },
+    },
+    {
+      name: '11-combo-confirm',
+      frames: 72,
+      setup: () => {
+        engine.beginRun(1, false);
+        type ChainEng = {
+          phase: string;
+          vessels: Array<{ x: number; y: number }>;
+          incrementChain: (x?: number, y?: number) => void;
+          chainCount: number;
+          comboFlash: number;
+          chainPopScale: number;
+        };
+        const e = engine as unknown as ChainEng;
+        e.phase = 'FLIGHT';
+        const vs = e.vessels;
+        if (vs.length > 0) {
+          while (e.chainCount < 21) {
+            const v = vs[e.chainCount % vs.length];
+            e.incrementChain(v.x, v.y);
+          }
+        }
+        e.comboFlash = 1;
+        e.chainPopScale = 1.55;
+      },
+      tick: (i) => {
+        type ChainEng = {
+          vessels: Array<{ x: number; y: number }>;
+          incrementChain: (x?: number, y?: number) => void;
+          comboFlash: number;
+        };
+        const e = engine as unknown as ChainEng;
+        if (i % 5 === 0 && e.vessels.length > 0) {
+          const v = e.vessels[i % e.vessels.length];
+          e.incrementChain(v.x, v.y);
+          e.comboFlash = 1;
+        }
+      },
+    },
   ];
 
   let now = 0;
   const dtMs = 50;
+  const only = process.env.DEMO_ONLY?.split(',').map((s) => s.trim()).filter(Boolean);
 
   for (const scene of scenes) {
+    if (only && !only.includes(scene.name)) continue;
     console.log('scene', scene.name);
     const dir = path.join(tmp, scene.name);
     fs.mkdirSync(dir, { recursive: true });
@@ -264,11 +337,22 @@ async function main(): Promise<void> {
     { stdio: 'inherit' }
   );
 
+  if (fs.existsSync(path.join(outDir, '10-chart-vessels.webp'))) {
+    cropAnim(path.join(outDir, '10-chart-vessels.webp'), path.join(outDir, '12-close-vessels.webp'), '780x620+0+40');
+  }
+  if (fs.existsSync(path.join(outDir, '11-combo-confirm.webp'))) {
+    cropAnim(
+      path.join(outDir, '11-combo-confirm.webp'),
+      path.join(outDir, '13-close-combo.webp'),
+      '780x780+0+180'
+    );
+  }
+
   fs.writeFileSync(
     path.join(outDir, 'SHOTLIST.md'),
     `# ${stamp}
 
-Playfield captures of 星継 for later SNS edit. Source is the live engine (atlas paper, geometry / constellation / bosses).
+Playfield captures of 星継 for later SNS edit. Source is the live engine (atlas paper, chart-star vessels, combo astrolabe).
 
 | file | angle / use |
 |---|---|
@@ -281,6 +365,10 @@ Playfield captures of 星継 for later SNS edit. Source is the live engine (atla
 | 07-close-cradle.webp | 寄り・地平の弦／放つ手元 |
 | 08-close-stars.webp | 寄り・星座の器 |
 | 09-portrait-story.webp | 9:16 ストーリー余白 |
+| 10-chart-vessels.webp | 正面・星図の器（カタログ星） |
+| 11-combo-confirm.webp | 正面・コンボ確定（等級輪） |
+| 12-close-vessels.webp | 寄り・器の材質 |
+| 13-close-combo.webp | 寄り・コンボ確定演出 |
 
 20 fps WebP. Re-run: \`npx tsx scripts/record-demo.ts\`
 `
