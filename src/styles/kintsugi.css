@@ -523,6 +523,10 @@ body {
   color: var(--cinnabar);
 }
 
+.night-cell.mid strong {
+  color: var(--lamp);
+}
+
 .night-cell.cleared {
   border-color: var(--lamp);
 }

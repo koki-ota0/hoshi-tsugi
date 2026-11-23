@@ -8,7 +8,10 @@ import {
   StageClearInfo,
   clearRun,
   constellationForStage,
+  getStageBlueprint,
   isBossStage,
+  isGrandBossStage,
+  isMidBossStage,
   isNightUnlocked,
   loadRecord,
   loadRun,
@@ -63,7 +66,7 @@ export class KintsugiApp {
           <div class="act-inscription">
             <span class="act-kanji" id="hud-act-kanji" data-testid="hud-act">星継</span>
             <span class="act-sub" id="hud-act-sub">星図</span>
-            <span class="awakening-dots" id="hud-awake-dots" title="三つ溜まると線が増える"></span>
+            <span class="awakening-dots" id="hud-awake-dots" title="次の星座まで"></span>
           </div>
 
           <div class="integrity-vessels" id="hud-vessels" data-testid="hud-vessels" title="灯">
@@ -400,7 +403,7 @@ export class KintsugiApp {
       this.record.highestCleared > 0
         ? `${this.cap(this.record.highestCleared)}  ·  ${this.record.longestResonance}`
         : 'TABULA I';
-    const last = this.record.highestCleared > 0 ? constellationForStage(this.record.highestCleared) : null;
+    const last = this.record.highestCleared > 0 ? getStageBlueprint(this.record.highestCleared) : null;
     const cont = this.run
       ? `<button class="home-link dim" id="btn-continue" data-testid="btn-continue">つづき　${constellationForStage(this.run.stage).title}</button>`
       : '';
@@ -443,31 +446,37 @@ export class KintsugiApp {
   private renderNightSelect(): void {
     const count = nightSelectCount(this.record);
     const blocks: string[] = [];
-    let lastSeason = '';
+    let lastPlate = -1;
     for (let n = 1; n <= count; n++) {
-      const fig = constellationForStage(n);
-      const plate = SEASON_PLATE[fig.season];
-      if (fig.season !== lastSeason) {
-        lastSeason = fig.season;
-        blocks.push(`<div class="atlas-season">${plate.la}<em>${plate.jp}</em></div>`);
+      const bp = getStageBlueprint(n);
+      const plate = Math.floor((n - 1) / 12);
+      if (plate !== lastPlate) {
+        lastPlate = plate;
+        const season = SEASON_PLATE[bp.season];
+        blocks.push(
+          `<div class="atlas-season">${season.la}<em>${season.jp} · TABULA ${toRoman(plate + 1)}</em></div>`
+        );
       }
       const open = isNightUnlocked(n, this.record);
-      const boss = isBossStage(n);
+      const grand = isGrandBossStage(n);
+      const mid = isMidBossStage(n);
       const cleared = n <= this.record.highestCleared;
       const best = this.record.bestChainByStage[String(n)];
       const cls = [
         'night-cell',
         open ? '' : 'locked',
-        boss ? 'boss' : '',
+        grand ? 'boss' : '',
+        mid ? 'mid' : '',
         cleared ? 'cleared' : '',
       ]
         .filter(Boolean)
         .join(' ');
+      const kicker = grand ? '大ボス' : mid ? '中ボス' : open ? bp.latin : 'incognita';
       blocks.push(`
         <button class="${cls}" data-night="${n}" ${open ? '' : 'disabled'} data-testid="night-${n}">
           <em>NOX ${toRoman(n)}</em>
-          <strong>${open ? fig.title : '—'}</strong>
-          <span>${open ? fig.latin : 'incognita'}</span>
+          <strong>${open ? bp.title : '—'}</strong>
+          <span>${kicker}</span>
           ${best ? `<b>${best}</b>` : ''}
         </button>
       `);
@@ -480,7 +489,7 @@ export class KintsugiApp {
           <div class="menu-title">図譜</div>
           <div class="menu-spacer"></div>
         </div>
-        <p class="menu-lead">開いた星座から始める。持ち星は図の番号だけ増える。</p>
+        <p class="menu-lead">幾何の図を縫い、三つめに星座が降りる。星座を継ぐたび、持ち星が増える。</p>
         <div class="night-grid atlas-index">${blocks.join('')}</div>
       </div>
     `);

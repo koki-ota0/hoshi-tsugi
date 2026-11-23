@@ -8,10 +8,13 @@ import {
   SEALS_PER_AWAKENING,
   StageBlueprint,
   StageClearInfo,
+  constellationClearsBefore,
   constellationForStage,
   emptyRanks,
   getStageBlueprint,
+  isAwakeningStage,
   isBossStage,
+  isConstellationStage,
 } from './kintsugiData';
 import { MAGNITUDE_MILESTONES, magnitudeOf } from './constellations';
 import { SKIN, stageCaption, type CanvasSkin, type VisualTheme } from './visualTheme';
@@ -466,7 +469,7 @@ export class KintsugiCanvasEngine {
     this.maxIntegrity = 3;
     this.longestChainInRun = 0;
     this.collectedOrbPearls = 0;
-    this.stageClearBonusPearls = Math.max(0, startStage - 1);
+    this.stageClearBonusPearls = constellationClearsBefore(startStage);
     this.pendingAwakening = false;
     this.fastForward = false;
     this.ranks = emptyRanks();
@@ -588,6 +591,7 @@ export class KintsugiCanvasEngine {
     this.killsSinceRecharge = 0;
     this.lightningHitCounter = 0;
     this.slashUsedThisStage = false;
+    this.awakeningSeals = (stageNum - 1) % 3;
 
     // `金継ぎの一閃` (`kintsugi_slash`):
     // Rank 1 = 1 use for the entire stage; Rank 2..4 = 1 use per turn; Rank 5 = 2 uses per turn!
@@ -628,8 +632,10 @@ export class KintsugiCanvasEngine {
 
     if (bp.archetype === 'GUARDIAN_BOSS') {
       this.buildGuardianBoss(bp);
-    } else {
+    } else if (bp.archetype === 'CONSTELLATION') {
       this.buildConstellationFigure(bp);
+    } else {
+      this.buildGeometry(bp);
     }
 
     this.emitHud();
@@ -690,10 +696,10 @@ export class KintsugiCanvasEngine {
    * Features individually destructible Hakuji Porcelain Armor Segments + Sacred Eclipse/Lotus/Armillary Core!
    */
   private buildGuardianBoss(bp: StageBlueprint): void {
-    const bossIdx = Math.floor(bp.stage / 5 - 1) % BOSS_ARCHETYPES.length;
+    const bossIdx = Math.floor(Math.max(0, bp.stage / 12 - 1)) % BOSS_ARCHETYPES.length;
     const arch = BOSS_ARCHETYPES[bossIdx];
-    const coreHp = Math.round(bp.baseHp * (bp.stage === 5 ? 5.0 : 6.4));
-    const segHp = Math.max(7, Math.round(bp.baseHp * 0.85));
+    const coreHp = Math.round(bp.baseHp * (bp.stage <= 12 ? 4.4 : 5.4));
+    const segHp = Math.max(7, Math.round(bp.baseHp * 0.8));
 
     const segments: BossArmorSegment[] = [];
     for (let i = 0; i < arch.armorCount; i++) {
@@ -716,7 +722,7 @@ export class KintsugiCanvasEngine {
       x: TABLET_W * 0.5,
       y: startY - 22,
       targetY: startY,
-      vx: 22 + bp.stage * 1.1,
+      vx: 16 + Math.min(36, bp.stage * 0.22),
       coreR: 33,
       armorR: 65,
       hp: coreHp,
@@ -761,6 +767,151 @@ export class KintsugiCanvasEngine {
       .filter(([a, b]) => ids[a] && ids[b])
       .map(([a, b]) => [ids[a], ids[b]]);
     sound.playPorcelainShatter(true);
+  }
+
+  private buildGeometry(bp: StageBlueprint): void {
+    const kind = bp.geometry ?? 'gate';
+    const heat = Math.min(1, Math.max(0, (bp.stage - 10) / 50));
+    const drift = kind === 'orbit' || bp.stage >= 22 ? 18 + heat * 16 : 0;
+    const bombChance = 0.08 + heat * 0.18;
+
+    const put = (
+      nx: number,
+      ny: number,
+      hpMul = 1,
+      vermilion = false,
+      armored = false,
+      vx = 0,
+      shape?: 'OCTAGON' | 'DIAMOND' | 'HEXAGON' | 'DISC'
+    ): void => {
+      const p = this.mapStar(nx, ny);
+      const isBomb = vermilion || Math.random() < bombChance * 0.35;
+      this.addVessel(
+        p.x,
+        p.y,
+        Math.round(bp.baseHp * hpMul * (isBomb ? 0.55 : 1)),
+        shape ?? (armored ? 'OCTAGON' : isBomb ? 'DIAMOND' : 'HEXAGON'),
+        isBomb,
+        armored,
+        vx
+      );
+    };
+
+    if (kind === 'gate') {
+      for (const c of [0.2, 0.4, 0.6, 0.8]) put(c, 0.18, 1.1);
+      for (const c of [0.2, 0.8]) {
+        put(c, 0.42, 1);
+        put(c, 0.66, 0.9, false, false, 0, 'DIAMOND');
+      }
+    } else if (kind === 'wings') {
+      for (let i = 0; i < 6; i++) put(0.08 + i * 0.168, 0.16, 1.15);
+      for (const c of [0.08, 0.24, 0.76, 0.92]) put(c, 0.4, 1);
+      for (const c of [0.24, 0.5, 0.76]) put(c, 0.64, 0.85, false, false, 0, 'DISC');
+    } else if (kind === 'steps') {
+      for (let r = 0; r < 3; r++) {
+        const n = 4 + r;
+        for (let i = 0; i < n; i++) {
+          put(0.12 + (0.76 * i) / (n - 1), 0.18 + r * 0.26, 1.1 - r * 0.12);
+        }
+      }
+    } else if (kind === 'cluster') {
+      for (let i = 0; i < 6; i++) put(0.12 + i * 0.15, 0.16, 1.1);
+      for (let i = 0; i < 6; i++) put(0.12 + i * 0.15, 0.44, i === 2 || i === 3 ? 0.6 : 1, i === 2 || i === 3);
+      for (let i = 1; i < 5; i++) put(0.12 + i * 0.15, 0.7, i === 1 || i === 4 ? 0.6 : 0.9, i === 1 || i === 4);
+    } else if (kind === 'shower') {
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 6; c++) {
+          if ((r + c) % 5 === 0) continue;
+          put(0.08 + c * 0.168, 0.12 + r * 0.2, 0.85, (r + c) % 7 === 0);
+        }
+      }
+    } else if (kind === 'bastion') {
+      for (let i = 0; i < 6; i++) put(0.08 + i * 0.168, 0.16, 0.9);
+      for (let i = 1; i < 5; i++) put(0.08 + i * 0.168, 0.4, 0.85, i === 2 || i === 3);
+      for (let i = 1; i < 5; i++) put(0.08 + i * 0.168, 0.66, 1.7, false, true, 0, 'OCTAGON');
+    } else if (kind === 'orbit') {
+      for (let r = 0; r < 4; r++) {
+        const vx = (r % 2 === 0 ? 1 : -1) * (20 + r * 4);
+        const cols = r % 2 === 0 ? [0, 1, 3, 4] : [1, 2, 4, 5];
+        for (const c of cols) {
+          put(0.08 + c * 0.168, 0.14 + r * 0.2, 1, r === 2 && (c === 2 || c === 4), false, vx, 'DISC');
+        }
+      }
+    } else if (kind === 'triangle') {
+      const rows = [
+        [0.5],
+        [0.35, 0.65],
+        [0.22, 0.5, 0.78],
+        [0.12, 0.34, 0.66, 0.88],
+      ];
+      rows.forEach((row, r) => {
+        row.forEach((x, i) => put(x, 0.14 + r * 0.22, r === 0 ? 1.6 : 1, false, r === 0));
+      });
+    } else if (kind === 'hex') {
+      put(0.5, 0.46, 1.5, false, true, 0, 'HEXAGON');
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+        put(0.5 + Math.cos(a) * 0.34, 0.46 + Math.sin(a) * 0.32, 1);
+      }
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        put(0.5 + Math.cos(a) * 0.18, 0.46 + Math.sin(a) * 0.16, 0.85, i % 2 === 0);
+      }
+    } else if (kind === 'diamond') {
+      const pts = [
+        [0.5, 0.1],
+        [0.32, 0.32],
+        [0.68, 0.32],
+        [0.18, 0.54],
+        [0.5, 0.54],
+        [0.82, 0.54],
+        [0.32, 0.76],
+        [0.68, 0.76],
+        [0.5, 0.9],
+      ];
+      pts.forEach(([x, y], i) => put(x, y, i === 4 ? 1.5 : 1, false, i === 4, 0, 'DIAMOND'));
+    } else if (kind === 'wedge') {
+      for (let r = 0; r < 5; r++) {
+        const n = r + 1;
+        for (let i = 0; i < n; i++) {
+          const x = 0.5 + (i - (n - 1) / 2) * 0.16;
+          put(x, 0.12 + r * 0.17, r === 0 ? 1.4 : 1, false, r === 0);
+        }
+      }
+    } else if (kind === 'spiral') {
+      for (let i = 0; i < 12; i++) {
+        const t = i / 12;
+        const a = t * Math.PI * 3.2;
+        const rad = 0.08 + t * 0.34;
+        put(0.5 + Math.cos(a) * rad, 0.46 + Math.sin(a) * rad * 0.9, i === 0 ? 1.5 : 0.95, i === 8, i === 0);
+      }
+    } else if (kind === 'columns') {
+      for (let r = 0; r < 5; r++) {
+        put(0.28, 0.12 + r * 0.18, 1, false, r === 0, drift * 0.6);
+        put(0.72, 0.12 + r * 0.18, 1, r === 2, r === 0, -drift * 0.6);
+      }
+    } else if (kind === 'checker') {
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 5; c++) {
+          const bomb = (r + c) % 2 === 0;
+          put(0.14 + c * 0.18, 0.14 + r * 0.22, bomb ? 0.7 : 1.05, bomb);
+        }
+      }
+    } else if (kind === 'ring') {
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        put(0.5 + Math.cos(a) * 0.38, 0.46 + Math.sin(a) * 0.34, 1);
+      }
+      put(0.5, 0.46, 1.6, false, true, 0, 'OCTAGON');
+    } else if (kind === 'cross') {
+      for (let i = 0; i < 5; i++) put(0.5, 0.1 + i * 0.18, i === 2 ? 1.5 : 1, false, i === 2);
+      for (const x of [0.18, 0.34, 0.66, 0.82]) put(x, 0.46, 1);
+    } else {
+      for (let i = 0; i < 5; i++) put(0.15 + i * 0.175, 0.35, 1);
+    }
+
+    this.addOrb(TABLET_W * 0.18, 310, 1);
+    if (bp.stage >= 2) this.addOrb(TABLET_W * 0.82, 278, 1);
   }
 
   public getGuardianTurnsUntilBreach(): number | null {
@@ -1941,20 +2092,17 @@ export class KintsugiCanvasEngine {
 
   private concludeStageCleared(): void {
     this.fastForward = false;
-    this.stageClearBonusPearls += 1;
+    if (isConstellationStage(this.stage)) {
+      this.stageClearBonusPearls += 1;
+    }
     sound.playActComplete();
 
     const bossJustCleared = isBossStage(this.stage);
-    if (!bossJustCleared) {
-      this.awakeningSeals += 1;
-    }
-    this.pendingAwakening = bossJustCleared || this.awakeningSeals >= SEALS_PER_AWAKENING;
-    if (this.pendingAwakening) {
-      this.awakeningSeals = 0;
-    }
+    this.pendingAwakening = isAwakeningStage(this.stage);
+    this.awakeningSeals = this.pendingAwakening ? 0 : (this.stage % 3);
 
     this.phase = 'CLEARED';
-    this.clearHoldMax = bossJustCleared ? 16 : 12;
+    this.clearHoldMax = bossJustCleared ? 16 : isConstellationStage(this.stage) ? 14 : 10;
     this.transitionTimer = this.clearHoldMax;
     this.clearBurstTimer = 0.9;
     this.shakeTimer = Math.max(this.shakeTimer, 0.22);
