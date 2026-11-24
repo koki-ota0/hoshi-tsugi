@@ -24,17 +24,29 @@ export interface ConstellationDef {
 
 export type GeometryKind =
   | 'gate'
+  | 'pentagram'
   | 'wings'
+  | 'vesica'
   | 'steps'
+  | 'chevron'
   | 'cluster'
+  | 'zigzag'
   | 'shower'
+  | 'flower'
   | 'bastion'
+  | 'pendulum'
   | 'orbit'
+  | 'arc'
   | 'triangle'
+  | 'wave'
   | 'hex'
+  | 'crescent'
   | 'diamond'
+  | 'starburst'
   | 'wedge'
+  | 'triskel'
   | 'spiral'
+  | 'hourglass'
   | 'columns'
   | 'checker'
   | 'ring'
@@ -48,37 +60,61 @@ export const SEASON_PLATE: Record<Season, { jp: string; la: string }> = {
 };
 
 export const GEOMETRY_PLATES: Record<GeometryKind, { title: string; latin: string; lore: string }> = {
-  gate: { title: '門列', latin: 'PORTA', lore: '隙間を狙って、天井で返す' },
+  gate: { title: '門', latin: 'PORTA', lore: '柱のあいだを抜け、梁を落とす' },
+  pentagram: { title: '五芒', latin: 'PENTAGRAMMA', lore: '尖端から、星を辿る' },
   wings: { title: '双翼', latin: 'ALAE', lore: '左右の翼を、交互に削る' },
+  vesica: { title: '双円', latin: 'VESICA', lore: '重なりを先に、輪を割る' },
   steps: { title: '段丘', latin: 'GRADUS', lore: '下段から、段を登るように' },
+  chevron: { title: '矢羽', latin: 'CUNEI', lore: '山型を、下から崩す' },
   cluster: { title: '朱叢', latin: 'SPINA', lore: '朱の星は、割ると隣へ火が走る' },
-  shower: { title: '金雨', latin: 'IMBER', lore: 'もろい星は、連鎖で一気に' },
+  zigzag: { title: '稲妻', latin: 'FULMEN', lore: '折れ線を、追いかけて縫う' },
+  shower: { title: '金雨', latin: 'IMBER', lore: '斜めに落ちる星を、連鎖で' },
+  flower: { title: '八華', latin: 'FLORE', lore: '花弁を先に、芯を残す' },
   bastion: { title: '砦', latin: 'ARX', lore: '硬い星は、壁で裏へ回る' },
-  orbit: { title: '回廊', latin: 'AMBITUS', lore: '動く隙間を見て、放つ' },
+  pendulum: { title: '振子', latin: 'PENDULUM', lore: '揺れる列の隙間を見て、放つ' },
+  orbit: { title: '回廊', latin: 'AMBITUS', lore: '回る輪の隙間を見て、放つ' },
+  arc: { title: '弓', latin: 'ARCUS', lore: '弧の高い星から、落とす' },
   triangle: { title: '三角', latin: 'TRIANGLA', lore: '頂点の硬い星を、最後に' },
+  wave: { title: '波', latin: 'UNDA', lore: 'うねりの山を、交互に' },
   hex: { title: '六花', latin: 'HEXAGONUM', lore: '芯を残して、外輪を先に' },
+  crescent: { title: '月弦', latin: 'LUNULA', lore: '欠けた弧を、端から辿る' },
   diamond: { title: '菱', latin: 'RHOMBUS', lore: '長い対角線に、糸を通せ' },
+  starburst: { title: '放射', latin: 'RADIUS', lore: '光条を先に、核へ戻る' },
   wedge: { title: '楔', latin: 'CUNEUS', lore: '尖端から、幅を広げて割る' },
+  triskel: { title: '巴', latin: 'TRISKELES', lore: '三つの渦を、ひとつずつ' },
   spiral: { title: '渦', latin: 'VORTEX', lore: '外から巻いて、核へ' },
-  columns: { title: '双列', latin: 'COLUMNAE', lore: '一列を貫き、もう一列へ返す' },
-  checker: { title: '市松', latin: 'TESSERA', lore: '朱と白を、跳び石に' },
+  hourglass: { title: '砂漏', latin: 'CLEPSYDRA', lore: '細い腰を先に、上下へ' },
+  columns: { title: '三列', latin: 'COLUMNAE', lore: '中列は動く。外を先に' },
+  checker: { title: '斜格子', latin: 'TESSERA', lore: '斜めの朱を、跳び石に' },
   ring: { title: '環', latin: 'ANNULUS', lore: '輪の隙間から、内側へ' },
   cross: { title: '十字', latin: 'CRUX GEOM.', lore: '交差を先に、腕を落とす' },
 };
 
 export const GEOMETRY_CYCLE: GeometryKind[] = [
   'gate',
+  'pentagram',
   'wings',
+  'vesica',
   'steps',
+  'chevron',
   'cluster',
+  'zigzag',
   'shower',
+  'flower',
   'bastion',
+  'pendulum',
   'orbit',
+  'arc',
   'triangle',
+  'wave',
   'hex',
+  'crescent',
   'diamond',
+  'starburst',
   'wedge',
+  'triskel',
   'spiral',
+  'hourglass',
   'columns',
   'checker',
   'ring',
@@ -91,18 +127,18 @@ export interface MagnitudeGrade {
   mag: number;
 }
 
-/** 珠の数に対する倍率。六等は2倍から、超新星は15倍。零等は織女の明るさ。 */
+/** 珠の数に対する倍率。六等は2倍から、超新星は20倍。零等は織女の明るさ。 */
 export function magnitudeMilestones(pearlCount: number): number[] {
   const n = Math.max(1, pearlCount);
   return [
     Math.ceil(n * 2),
-    Math.ceil(n * 4),
-    Math.ceil(n * 6),
+    Math.ceil(n * 5),
     Math.ceil(n * 8),
-    Math.ceil(n * 10),
-    Math.ceil(n * 12),
-    Math.ceil(n * 13.5),
-    n * 15,
+    Math.ceil(n * 11),
+    Math.ceil(n * 14),
+    Math.ceil(n * 16.5),
+    Math.ceil(n * 18),
+    n * 20,
   ];
 }
 
@@ -902,15 +938,47 @@ export function geometryLayout(kind: GeometryKind): LayoutStar[] {
   const put = (s: LayoutStar) => pts.push(s);
 
   if (kind === 'gate') {
-    for (const c of [0.2, 0.4, 0.6, 0.8]) put({ x: c, y: 0.18, hpMul: 1.1 });
-    for (const c of [0.2, 0.8]) {
-      put({ x: c, y: 0.42, hpMul: 1 });
-      put({ x: c, y: 0.66, hpMul: 0.9, shape: 'DIAMOND' });
+    for (const x of [0.22, 0.4, 0.6, 0.78]) put({ x, y: 0.16, hpMul: 1.15, armored: x === 0.4 || x === 0.6 });
+    for (const y of [0.4, 0.62, 0.84]) {
+      put({ x: 0.22, y, hpMul: 1, shape: 'OCTAGON' });
+      put({ x: 0.78, y, hpMul: 1, shape: 'OCTAGON' });
+    }
+  } else if (kind === 'pentagram') {
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+      put({
+        x: 0.5 + Math.cos(a) * 0.38,
+        y: 0.46 + Math.sin(a) * 0.36,
+        hpMul: i === 0 ? 1.5 : 1,
+        armored: i === 0,
+      });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + Math.PI / 5 + (i * 2 * Math.PI) / 5;
+      put({ x: 0.5 + Math.cos(a) * 0.16, y: 0.46 + Math.sin(a) * 0.15, hpMul: 0.85, vermilion: i % 2 === 0 });
     }
   } else if (kind === 'wings') {
-    for (let i = 0; i < 6; i++) put({ x: 0.08 + i * 0.168, y: 0.16, hpMul: 1.15 });
-    for (const c of [0.08, 0.24, 0.76, 0.92]) put({ x: c, y: 0.4, hpMul: 1 });
-    for (const c of [0.24, 0.5, 0.76]) put({ x: c, y: 0.64, hpMul: 0.85, shape: 'DISC' });
+    put({ x: 0.5, y: 0.48, hpMul: 1.6, armored: true, shape: 'OCTAGON' });
+    for (let i = 0; i < 5; i++) {
+      put({ x: 0.1 + i * 0.07, y: 0.18 + i * 0.14, hpMul: 1 });
+      put({ x: 0.9 - i * 0.07, y: 0.18 + i * 0.14, hpMul: 1 });
+    }
+    put({ x: 0.32, y: 0.78, hpMul: 0.85, shape: 'DISC', vx: 16 });
+    put({ x: 0.68, y: 0.78, hpMul: 0.85, shape: 'DISC', vx: -16 });
+  } else if (kind === 'vesica') {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      put({ x: 0.34 + Math.cos(a) * 0.22, y: 0.46 + Math.sin(a) * 0.28, hpMul: 1 });
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.4;
+      put({
+        x: 0.66 + Math.cos(a) * 0.22,
+        y: 0.46 + Math.sin(a) * 0.28,
+        hpMul: 0.9,
+        vermilion: i === 2 || i === 6,
+      });
+    }
   } else if (kind === 'steps') {
     for (let r = 0; r < 3; r++) {
       const n = 4 + r;
@@ -918,51 +986,136 @@ export function geometryLayout(kind: GeometryKind): LayoutStar[] {
         put({ x: 0.12 + (0.76 * i) / (n - 1), y: 0.18 + r * 0.26, hpMul: 1.1 - r * 0.12 });
       }
     }
-  } else if (kind === 'cluster') {
-    for (let i = 0; i < 6; i++) put({ x: 0.12 + i * 0.15, y: 0.16, hpMul: 1.1 });
-    for (let i = 0; i < 6; i++) {
-      const bomb = i === 2 || i === 3;
-      put({ x: 0.12 + i * 0.15, y: 0.44, hpMul: bomb ? 0.6 : 1, vermilion: bomb });
-    }
-    for (let i = 1; i < 5; i++) {
-      const bomb = i === 1 || i === 4;
-      put({ x: 0.12 + i * 0.15, y: 0.7, hpMul: bomb ? 0.6 : 0.9, vermilion: bomb });
-    }
-  } else if (kind === 'shower') {
+  } else if (kind === 'chevron') {
     for (let r = 0; r < 4; r++) {
-      for (let c = 0; c < 6; c++) {
-        if ((r + c) % 5 === 0) continue;
-        put({ x: 0.08 + c * 0.168, y: 0.12 + r * 0.2, hpMul: 0.85, vermilion: (r + c) % 7 === 0 });
+      const n = 2 + r;
+      for (let i = 0; i < n; i++) {
+        put({
+          x: 0.5 + (i - (n - 1) / 2) * 0.18,
+          y: 0.16 + r * 0.2,
+          hpMul: r === 0 ? 1.45 : 1,
+          armored: r === 0 && i === 0,
+          shape: 'DIAMOND',
+        });
       }
     }
-  } else if (kind === 'bastion') {
-    for (let i = 0; i < 6; i++) put({ x: 0.08 + i * 0.168, y: 0.16, hpMul: 0.9 });
-    for (let i = 1; i < 5; i++) {
-      put({ x: 0.08 + i * 0.168, y: 0.4, hpMul: 0.85, vermilion: i === 2 || i === 3 });
+  } else if (kind === 'cluster') {
+    put({ x: 0.5, y: 0.42, hpMul: 1.3, armored: true });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const rad = 0.14 + (i % 3) * 0.08;
+      put({
+        x: 0.5 + Math.cos(a) * rad,
+        y: 0.46 + Math.sin(a) * rad * 0.9,
+        hpMul: i % 3 === 0 ? 0.65 : 1,
+        vermilion: i % 3 === 0,
+      });
     }
-    for (let i = 1; i < 5; i++) {
-      put({ x: 0.08 + i * 0.168, y: 0.66, hpMul: 1.7, armored: true, shape: 'OCTAGON' });
+  } else if (kind === 'zigzag') {
+    const zs = [0.12, 0.38, 0.18, 0.55, 0.28, 0.72, 0.42, 0.88];
+    for (let i = 0; i < 8; i++) {
+      put({
+        x: zs[i],
+        y: 0.12 + i * 0.1,
+        hpMul: i === 0 ? 1.4 : 1,
+        armored: i === 0,
+        vx: i % 2 === 0 ? 14 : -14,
+        shape: 'DIAMOND',
+      });
+    }
+  } else if (kind === 'shower') {
+    for (let s = 0; s < 4; s++) {
+      for (let k = 0; k < 4; k++) {
+        put({
+          x: 0.12 + s * 0.24 + k * 0.05,
+          y: 0.12 + k * 0.2,
+          hpMul: 0.8,
+          vermilion: k === 3,
+          vx: 8 + s * 4,
+        });
+      }
+    }
+  } else if (kind === 'flower') {
+    put({ x: 0.5, y: 0.46, hpMul: 1.7, armored: true, shape: 'OCTAGON' });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 - Math.PI / 8;
+      put({
+        x: 0.5 + Math.cos(a) * 0.32,
+        y: 0.46 + Math.sin(a) * 0.3,
+        hpMul: 1,
+        vermilion: i % 2 === 0,
+        shape: 'DISC',
+      });
+    }
+  } else if (kind === 'bastion') {
+    for (const x of [0.18, 0.5, 0.82]) put({ x, y: 0.16, hpMul: 1.5, armored: true, shape: 'OCTAGON' });
+    for (const x of [0.18, 0.82]) {
+      put({ x, y: 0.42, hpMul: 1.2, armored: true });
+      put({ x, y: 0.68, hpMul: 1.2, armored: true });
+    }
+    put({ x: 0.5, y: 0.42, hpMul: 0.7, vermilion: true });
+    put({ x: 0.38, y: 0.68, hpMul: 0.85 });
+    put({ x: 0.62, y: 0.68, hpMul: 0.85 });
+    put({ x: 0.5, y: 0.86, hpMul: 1 });
+  } else if (kind === 'pendulum') {
+    for (let i = 0; i < 5; i++) put({ x: 0.5, y: 0.12 + i * 0.16, hpMul: i === 0 ? 1.5 : 1, armored: i === 0 });
+    for (let i = 0; i < 4; i++) {
+      put({ x: 0.18, y: 0.22 + i * 0.18, hpMul: 0.95, vx: 22, shape: 'DISC' });
+      put({ x: 0.82, y: 0.22 + i * 0.18, hpMul: 0.95, vx: -22, shape: 'DISC' });
     }
   } else if (kind === 'orbit') {
-    for (let r = 0; r < 4; r++) {
-      const vx = (r % 2 === 0 ? 1 : -1) * (20 + r * 4);
-      const cols = r % 2 === 0 ? [0, 1, 3, 4] : [1, 2, 4, 5];
-      for (const c of cols) {
+    for (let ring = 0; ring < 2; ring++) {
+      const n = ring === 0 ? 8 : 10;
+      const rad = ring === 0 ? 0.2 : 0.38;
+      const vx = ring === 0 ? 26 : -18;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
         put({
-          x: 0.08 + c * 0.168,
-          y: 0.14 + r * 0.2,
+          x: 0.5 + Math.cos(a) * rad,
+          y: 0.46 + Math.sin(a) * rad * 0.82,
           hpMul: 1,
-          vermilion: r === 2 && (c === 2 || c === 4),
+          vermilion: ring === 1 && i % 5 === 0,
           vx,
           shape: 'DISC',
         });
       }
     }
+  } else if (kind === 'arc') {
+    for (let i = 0; i < 9; i++) {
+      const t = i / 8;
+      const a = Math.PI * (1.12 - t * 1.24);
+      put({
+        x: 0.5 + Math.cos(a) * 0.42,
+        y: 0.62 + Math.sin(a) * 0.42,
+        hpMul: i === 4 ? 1.5 : 1,
+        armored: i === 4,
+      });
+    }
+    put({ x: 0.22, y: 0.82, hpMul: 0.85, vermilion: true });
+    put({ x: 0.78, y: 0.82, hpMul: 0.85, vermilion: true });
   } else if (kind === 'triangle') {
     const rows = [[0.5], [0.35, 0.65], [0.22, 0.5, 0.78], [0.12, 0.34, 0.66, 0.88]];
     rows.forEach((row, r) => {
       row.forEach((x) => put({ x, y: 0.14 + r * 0.22, hpMul: r === 0 ? 1.6 : 1, armored: r === 0 }));
     });
+  } else if (kind === 'wave') {
+    for (let i = 0; i < 7; i++) {
+      put({
+        x: 0.1 + i * 0.13,
+        y: 0.28 + Math.sin(i * 0.95) * 0.16,
+        hpMul: 1,
+        vx: 16,
+        shape: 'DISC',
+      });
+      put({
+        x: 0.1 + i * 0.13,
+        y: 0.62 + Math.sin(i * 0.95 + Math.PI) * 0.16,
+        hpMul: 0.9,
+        vermilion: i === 3,
+        vx: -16,
+        shape: 'DISC',
+      });
+    }
   } else if (kind === 'hex') {
     put({ x: 0.5, y: 0.46, hpMul: 1.5, armored: true, shape: 'HEXAGON' });
     for (let i = 0; i < 6; i++) {
@@ -978,6 +1131,18 @@ export function geometryLayout(kind: GeometryKind): LayoutStar[] {
         vermilion: i % 2 === 0,
       });
     }
+  } else if (kind === 'crescent') {
+    for (let i = 0; i < 11; i++) {
+      const a = -Math.PI * 0.7 + (i / 10) * Math.PI * 1.4;
+      put({
+        x: 0.42 + Math.cos(a) * 0.36,
+        y: 0.46 + Math.sin(a) * 0.36,
+        hpMul: i === 5 ? 1.4 : 1,
+        armored: i === 5,
+      });
+    }
+    put({ x: 0.72, y: 0.32, hpMul: 0.8, vermilion: true, vx: -12 });
+    put({ x: 0.78, y: 0.58, hpMul: 0.8, vx: -12 });
   } else if (kind === 'diamond') {
     const spots = [
       [0.5, 0.1],
@@ -993,6 +1158,18 @@ export function geometryLayout(kind: GeometryKind): LayoutStar[] {
     spots.forEach(([x, y], i) =>
       put({ x, y, hpMul: i === 4 ? 1.5 : 1, armored: i === 4, shape: 'DIAMOND' })
     );
+  } else if (kind === 'starburst') {
+    put({ x: 0.5, y: 0.46, hpMul: 1.8, armored: true, shape: 'OCTAGON' });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      put({ x: 0.5 + Math.cos(a) * 0.18, y: 0.46 + Math.sin(a) * 0.16, hpMul: 0.9 });
+      put({
+        x: 0.5 + Math.cos(a) * 0.38,
+        y: 0.46 + Math.sin(a) * 0.34,
+        hpMul: 1,
+        vermilion: i % 2 === 0,
+      });
+    }
   } else if (kind === 'wedge') {
     for (let r = 0; r < 5; r++) {
       const n = r + 1;
@@ -1002,6 +1179,22 @@ export function geometryLayout(kind: GeometryKind): LayoutStar[] {
           y: 0.12 + r * 0.17,
           hpMul: r === 0 ? 1.4 : 1,
           armored: r === 0,
+        });
+      }
+    }
+  } else if (kind === 'triskel') {
+    put({ x: 0.5, y: 0.46, hpMul: 1.5, armored: true });
+    for (let arm = 0; arm < 3; arm++) {
+      const base = -Math.PI / 2 + (arm * 2 * Math.PI) / 3;
+      for (let k = 1; k <= 4; k++) {
+        const a = base + k * 0.42;
+        const rad = 0.1 + k * 0.07;
+        put({
+          x: 0.5 + Math.cos(a) * rad,
+          y: 0.46 + Math.sin(a) * rad * 0.92,
+          hpMul: 0.95,
+          vermilion: k === 4,
+          vx: arm === 0 ? 14 : arm === 1 ? -14 : 0,
         });
       }
     }
@@ -1018,29 +1211,50 @@ export function geometryLayout(kind: GeometryKind): LayoutStar[] {
         armored: i === 0,
       });
     }
+  } else if (kind === 'hourglass') {
+    for (let r = 0; r < 4; r++) {
+      const n = r < 2 ? 4 - r : r;
+      const y = r < 2 ? 0.14 + r * 0.18 : 0.5 + (r - 2) * 0.2;
+      for (let i = 0; i < n; i++) {
+        put({
+          x: 0.5 + (i - (n - 1) / 2) * 0.18,
+          y,
+          hpMul: n === 2 ? 1.4 : 1,
+          armored: n === 2,
+          shape: 'DIAMOND',
+        });
+      }
+    }
   } else if (kind === 'columns') {
     for (let r = 0; r < 5; r++) {
-      put({ x: 0.28, y: 0.12 + r * 0.18, hpMul: 1, armored: r === 0 });
-      put({ x: 0.72, y: 0.12 + r * 0.18, hpMul: 1, vermilion: r === 2, armored: r === 0 });
+      put({ x: 0.2, y: 0.12 + r * 0.18, hpMul: 1, armored: r === 0 });
+      put({ x: 0.5, y: 0.12 + r * 0.18, hpMul: 0.9, vx: r % 2 === 0 ? 20 : -20, shape: 'DISC' });
+      put({ x: 0.8, y: 0.12 + r * 0.18, hpMul: 1, vermilion: r === 2, armored: r === 0 });
     }
   } else if (kind === 'checker') {
-    for (let r = 0; r < 4; r++) {
+    for (let r = 0; r < 5; r++) {
       for (let c = 0; c < 5; c++) {
-        const bomb = (r + c) % 2 === 0;
-        put({ x: 0.14 + c * 0.18, y: 0.14 + r * 0.22, hpMul: bomb ? 0.7 : 1.05, vermilion: bomb });
+        if ((r + c) % 2 !== 0) continue;
+        put({
+          x: 0.14 + c * 0.18,
+          y: 0.12 + r * 0.18,
+          hpMul: r === 2 && c === 2 ? 1.4 : 0.9,
+          vermilion: (r + c) % 4 === 0,
+          armored: r === 2 && c === 2,
+        });
       }
     }
   } else if (kind === 'ring') {
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;
-      put({ x: 0.5 + Math.cos(a) * 0.38, y: 0.46 + Math.sin(a) * 0.34, hpMul: 1 });
+      put({ x: 0.5 + Math.cos(a) * 0.38, y: 0.46 + Math.sin(a) * 0.34, hpMul: 1, vx: i % 2 === 0 ? 10 : 0 });
     }
     put({ x: 0.5, y: 0.46, hpMul: 1.6, armored: true, shape: 'OCTAGON' });
   } else if (kind === 'cross') {
     for (let i = 0; i < 5; i++) {
       put({ x: 0.5, y: 0.1 + i * 0.18, hpMul: i === 2 ? 1.5 : 1, armored: i === 2 });
     }
-    for (const x of [0.18, 0.34, 0.66, 0.82]) put({ x, y: 0.46, hpMul: 1 });
+    for (const x of [0.14, 0.32, 0.68, 0.86]) put({ x, y: 0.46, hpMul: 1, vx: x < 0.5 ? 12 : -12 });
   } else {
     for (let i = 0; i < 5; i++) put({ x: 0.15 + i * 0.175, y: 0.35, hpMul: 1 });
   }
@@ -1072,7 +1286,8 @@ function connectLayout(pts: Array<{ x: number; y: number }>, maxD = 0.3): Array<
 
 export function geometryFigure(kind: GeometryKind): AtlasGlyph {
   const pts = geometryLayout(kind);
-  return { stars: pts.map((p) => ({ x: p.x, y: p.y })), edges: connectLayout(pts) };
+  const maxD = pts.length <= 12 ? 0.46 : 0.34;
+  return { stars: pts.map((p) => ({ x: p.x, y: p.y })), edges: connectLayout(pts, maxD) };
 }
 
 export function atlasFigure(stage: number): AtlasGlyph {
