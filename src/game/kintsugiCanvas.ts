@@ -321,6 +321,9 @@ export class KintsugiCanvasEngine {
   private lastHit: { x: number; y: number } | null = null;
   private clearHoldMax = 12;
   private comboFlash = 0;
+  private aimContact: { vesselId: number; x: number; y: number; nx: number; ny: number } | null =
+    null;
+  private aimPts: Array<{ x: number; y: number }> = [];
 
   private bgImage: HTMLImageElement;
   private nextId = 1;
@@ -962,6 +965,137 @@ export class KintsugiCanvasEngine {
     });
   }
 
+  private vesselLocalVerts(shape: VesselShape, r: number): Array<{ x: number; y: number }> {
+    if (shape === 'DISC') return [];
+    if (shape === 'DIAMOND') {
+      return [
+        { x: 0, y: -r },
+        { x: r * 0.86, y: 0 },
+        { x: 0, y: r },
+        { x: -r * 0.86, y: 0 },
+      ];
+    }
+    const sides = shape === 'HEXAGON' ? 6 : 8;
+    const offset = shape === 'OCTAGON' ? Math.PI / 8 : Math.PI / 6;
+    const out: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < sides; i++) {
+      const a = offset + (i / sides) * Math.PI * 2;
+      out.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+    }
+    return out;
+  }
+
+  private vesselWorldVerts(v: PorcelainVessel): Array<{ x: number; y: number }> {
+    return this.vesselLocalVerts(v.shape, v.radius).map((p) => ({ x: v.x + p.x, y: v.y + p.y }));
+  }
+
+  private pointInConvex(px: number, py: number, verts: Array<{ x: number; y: number }>): boolean {
+    let sign = 0;
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      const cross = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+      if (Math.abs(cross) < 1e-8) continue;
+      const s = cross > 0 ? 1 : -1;
+      if (sign === 0) sign = s;
+      else if (s !== sign) return false;
+    }
+    return true;
+  }
+
+  /** Closest surface point + outward normal. Depth is penetration of a circle `pr`. */
+  private vesselContact(
+    px: number,
+    py: number,
+    pr: number,
+    v: PorcelainVessel
+  ): { nx: number; ny: number; qx: number; qy: number; depth: number } | null {
+    if (v.shape === 'DISC') {
+      const dx = px - v.x;
+      const dy = py - v.y;
+      const dist = Math.hypot(dx, dy);
+      const hitR = v.radius + pr;
+      if (dist > hitR) return null;
+      const nx = dist > 0.001 ? dx / dist : 0;
+      const ny = dist > 0.001 ? dy / dist : -1;
+      return {
+        nx,
+        ny,
+        qx: v.x + nx * v.radius,
+        qy: v.y + ny * v.radius,
+        depth: hitR - dist,
+      };
+    }
+
+    const verts = this.vesselWorldVerts(v);
+    let bestD = Infinity;
+    let qx = v.x;
+    let qy = v.y;
+    let nx = 0;
+    let ny = -1;
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      const abx = b.x - a.x;
+      const aby = b.y - a.y;
+      const len2 = abx * abx + aby * aby || 1;
+      const t = Math.max(0, Math.min(1, ((px - a.x) * abx + (py - a.y) * aby) / len2));
+      const sx = a.x + abx * t;
+      const sy = a.y + aby * t;
+      const dx = px - sx;
+      const dy = py - sy;
+      const d = Math.hypot(dx, dy);
+      if (d >= bestD) continue;
+      bestD = d;
+      qx = sx;
+      qy = sy;
+      let enx = aby;
+      let eny = -abx;
+      const nlen = Math.hypot(enx, eny) || 1;
+      enx /= nlen;
+      eny /= nlen;
+      if (enx * (sx - v.x) + eny * (sy - v.y) < 0) {
+        enx = -enx;
+        eny = -eny;
+      }
+      if (t > 0.04 && t < 0.96) {
+        nx = enx;
+        ny = eny;
+      } else if (d > 0.001) {
+        nx = dx / d;
+        ny = dy / d;
+        if (nx * (px - v.x) + ny * (py - v.y) < 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+      } else {
+        nx = enx;
+        ny = eny;
+      }
+    }
+
+    const inside = this.pointInConvex(px, py, verts);
+    if (!inside && bestD > pr) return null;
+    return { nx, ny, qx, qy, depth: inside ? pr + bestD : pr - bestD };
+  }
+
+  private bounceOffNormal(
+    p: GoldenPearl,
+    nx: number,
+    ny: number,
+    qx: number,
+    qy: number
+  ): void {
+    const vn = p.vx * nx + p.vy * ny;
+    if (vn < 0) {
+      p.vx -= 2 * vn * nx;
+      p.vy -= 2 * vn * ny;
+    }
+    p.x = qx + nx * (p.r + 0.9);
+    p.y = qy + ny * (p.r + 0.9);
+    p.bounces++;
+  }
+
   private generateKintsugiCracks(r: number): CrackBranch[] {
     const branches: CrackBranch[] = [];
     for (let i = 0; i < 4; i++) {
@@ -1557,30 +1691,19 @@ export class KintsugiCanvasEngine {
         continue;
       }
 
-      // Porcelain Vessels Collision
+      // Porcelain Vessels Collision — bounce off the drawn face, not a hidden circle
       for (let vIdx = 0; vIdx < this.vessels.length; vIdx++) {
         const v = this.vessels[vIdx];
         if (!v || v.hp <= 0) continue;
-        const dx = p.x - v.x;
-        const dy = p.y - v.y;
-        const hitR = v.radius + p.r;
-        const d2 = dx * dx + dy * dy;
-        if (d2 <= hitR * hitR) {
+        const hit = this.vesselContact(p.x, p.y, p.r, v);
+        if (hit) {
           const hitDmg = baseDmg + p.bonusNextHit;
           p.bonusNextHit = 0;
           const willKill = v.hp <= hitDmg;
           const shouldPierce = willKill && p.piercesLeft > 0;
 
           if (!shouldPierce) {
-            const dist = Math.max(0.1, Math.sqrt(d2));
-            const nx = dx / dist;
-            const ny = dy / dist;
-            const curSpd = Math.hypot(p.vx, p.vy);
-            p.x = v.x + nx * (hitR + 0.8);
-            p.y = v.y + ny * (hitR + 0.8);
-            p.vx = nx * curSpd;
-            p.vy = ny * curSpd;
-            p.bounces++;
+            this.bounceOffNormal(p, hit.nx, hit.ny, hit.qx, hit.qy);
           } else {
             p.piercesLeft -= 1;
             if (this.ranks.piercing_gold >= 4) {
@@ -2576,6 +2699,13 @@ export class KintsugiCanvasEngine {
       ctx.restore();
     }
 
+    if (this.phase === 'AIMING' || (this.phase === 'PROLOGUE' && this.isDrawingThread)) {
+      this.computeAimPath();
+    } else {
+      this.aimContact = null;
+      this.aimPts = [];
+    }
+
     for (const v of this.vessels) {
       this.drawPorcelainVessel(ctx, v);
     }
@@ -2655,10 +2785,14 @@ export class KintsugiCanvasEngine {
       ctx.restore();
 
       ctx.fillStyle = this.skin.pearlCore;
+      ctx.strokeStyle = this.skin.ink;
+      ctx.lineWidth = 0.85;
       for (let i = 0; i < this.pearls.length; i++) {
         const p = this.pearls[i];
-        this.traceChartStar(ctx, p.x, p.y, p.r * 0.95, 4);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
       }
     }
 
@@ -3195,58 +3329,44 @@ export class KintsugiCanvasEngine {
   }
 
   private drawComboAstrolabe(ctx: CanvasRenderingContext2D): void {
-    if (this.phase !== 'FLIGHT' || this.chainCount < 2) return;
+    if (this.phase !== 'FLIGHT' || this.chainCount < 1) return;
     const mag = magnitudeOf(this.chainCount);
     const flash = this.comboFlash;
     ctx.save();
-    ctx.translate(TABLET_W * 0.5, TABLET_H * 0.42);
+    ctx.translate(TABLET_W * 0.5, 38);
     ctx.scale(this.chainPopScale, this.chainPopScale);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const rings = [44, 62, 82];
-    ctx.strokeStyle = this.skin.gold;
-    for (let i = 0; i < rings.length; i++) {
-      ctx.globalAlpha = 0.16 + flash * 0.55 + i * 0.05;
-      ctx.lineWidth = i === 1 ? 1.25 : 0.7;
-      ctx.setLineDash(i === 0 ? [] : [1.4, 4.2]);
-      ctx.beginPath();
-      ctx.arc(0, 0, rings[i] + flash * 16, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-
-    const ticks = mag.mag <= 2 ? 24 : 16;
-    ctx.globalAlpha = 0.28 + flash * 0.5;
-    ctx.lineWidth = 0.7;
-    const rot = this.timeSec * 0.22;
-    for (let i = 0; i < ticks; i++) {
-      const a = rot + (i / ticks) * Math.PI * 2;
-      const inner = i % 4 === 0 ? 28 : 34;
-      const outer = 62 + flash * 10;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
-      ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer);
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = 0.35 + flash * 0.55;
-    this.traceChartStar(ctx, 0, 0, 14 + flash * 8, 8);
-    ctx.strokeStyle = this.skin.ink;
-    ctx.lineWidth = 1;
+    const w = 132;
+    const h = 26;
+    ctx.globalAlpha = 0.94;
+    ctx.fillStyle = 'rgba(247, 241, 227, 0.92)';
+    ctx.strokeStyle = flash > 0.2 ? this.skin.gold : 'rgba(44, 36, 22, 0.45)';
+    ctx.lineWidth = flash > 0.2 ? 1.6 : 1;
+    ctx.beginPath();
+    ctx.rect(-w * 0.5, -h * 0.5, w, h);
+    ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = flash > 0.35 ? this.skin.gold : this.skin.ink;
-    ctx.globalAlpha = 0.55 + flash * 0.45;
-    ctx.font = this.font('500', 46, true);
-    ctx.fillText(`${this.chainCount}`, 0, 2);
-    ctx.globalAlpha = 0.82 + flash * 0.18;
-    ctx.fillStyle = this.skin.gold;
-    ctx.font = this.font('500', 12, true);
-    ctx.fillText(mag.la, 0, 94);
+    if (flash > 0.04) {
+      ctx.globalAlpha = flash * 0.65;
+      ctx.strokeStyle = this.skin.gold;
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.rect(-w * 0.5 - 4 - flash * 8, -h * 0.5 - 4 - flash * 6, w + 8 + flash * 16, h + 8 + flash * 12);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = flash > 0.25 ? this.skin.gold : this.skin.ink;
+    ctx.font = this.font('600', 20, false);
+    ctx.fillText(`${this.chainCount}`, -34, 1);
     ctx.fillStyle = this.skin.ink;
-    ctx.font = this.font('400', 14);
-    ctx.fillText(mag.jp, 0, 112);
+    ctx.font = this.font('400', 13, false);
+    ctx.fillText(mag.jp, 24, 1);
     ctx.restore();
   }
 
@@ -3256,72 +3376,100 @@ export class KintsugiCanvasEngine {
     ctx.scale(v.scalePop, v.scalePop);
 
     const r = v.radius;
-    const hpRatio = Math.max(0, v.hp / v.maxHp);
-    const damageRatio = 1 - hpRatio;
+    const damageRatio = 1 - Math.max(0, v.hp / v.maxHp);
     const s = this.skin;
     const hit = v.hitFlash;
-    const points = v.isVermilion ? 4 : v.isArmored ? 8 : v.shape === 'DISC' ? 5 : v.shape === 'DIAMOND' ? 4 : 6;
     const ink = v.isVermilion ? s.vermilion : v.isArmored ? s.gold : s.ink;
+    const fill =
+      hit > 0.22 ? s.vesselHitHi : v.isVermilion ? '#f3e2d6' : v.isArmored ? s.vesselArmorHi : '#f7f1e3';
 
-    ctx.strokeStyle = v.isVermilion ? 'rgba(122, 36, 28, 0.45)' : 'rgba(44, 36, 22, 0.32)';
-    ctx.lineWidth = 0.65;
-    ctx.setLineDash([1.1, 2.8]);
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
+    this.traceVesselPath(ctx, v.shape, r);
+    ctx.fillStyle = fill;
+    ctx.fill();
     ctx.strokeStyle = ink;
-    ctx.lineWidth = v.isArmored ? 1.15 : 0.75;
-    const tickN = v.isArmored ? 8 : 4;
-    for (let i = 0; i < tickN; i++) {
-      const a = -Math.PI / 2 + (i / tickN) * Math.PI * 2;
+    ctx.lineWidth = v.isArmored ? 2.35 : 1.85;
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 2.4;
+    ctx.stroke();
+
+    const local = this.vesselLocalVerts(v.shape, r);
+    const faces = v.shape === 'DISC' ? 0 : local.length;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 1.05;
+    ctx.globalAlpha = 0.55;
+    if (v.shape === 'DISC') {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * (r - 3.2), Math.sin(a) * (r - 3.2));
+        ctx.lineTo(Math.cos(a) * (r - 0.4), Math.sin(a) * (r - 0.4));
+        ctx.stroke();
+      }
+    } else {
+      for (let i = 0; i < faces; i++) {
+        const a = local[i];
+        const b = local[(i + 1) % faces];
+        const mx = (a.x + b.x) * 0.5;
+        const my = (a.y + b.y) * 0.5;
+        let nx = b.y - a.y;
+        let ny = a.x - b.x;
+        const nlen = Math.hypot(nx, ny) || 1;
+        nx /= nlen;
+        ny /= nlen;
+        if (nx * mx + ny * my < 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+        ctx.beginPath();
+        ctx.moveTo(mx - nx * 1.2, my - ny * 1.2);
+        ctx.lineTo(mx - nx * 4.2, my - ny * 4.2);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    if (this.aimContact && this.aimContact.vesselId === v.id) {
+      ctx.strokeStyle = s.gold;
+      ctx.lineWidth = 3.1;
+      ctx.lineCap = 'round';
+      const hx = this.aimContact.x - v.x;
+      const hy = this.aimContact.y - v.y;
+      const tx = -this.aimContact.ny;
+      const ty = this.aimContact.nx;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86);
-      ctx.lineTo(Math.cos(a) * r * 1.12, Math.sin(a) * r * 1.12);
+      ctx.moveTo(hx - tx * 8, hy - ty * 8);
+      ctx.lineTo(hx + tx * 8, hy + ty * 8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(hx + this.aimContact.nx * 7, hy + this.aimContact.ny * 7);
       ctx.stroke();
     }
 
-    if (v.isVermilion) {
-      ctx.fillStyle = s.bombFill;
-      ctx.beginPath();
-      ctx.arc(0, 0, r * 0.58, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    this.traceChartStar(ctx, 0, 0, r * (0.78 + hit * 0.1), points);
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = v.isArmored ? 1.45 : 1.15;
-    ctx.stroke();
-
-    const coreR = r * (0.34 + hpRatio * 0.08 + hit * 0.05);
-    ctx.fillStyle = hit > 0.2 ? s.gold : v.isArmored ? s.gold : s.ink;
-    ctx.beginPath();
-    ctx.arc(0, 0, coreR, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (damageRatio > 0.05) {
-      const rays = Math.ceil(2 + damageRatio * 7);
+    if (damageRatio > 0.08) {
+      ctx.save();
+      this.traceVesselPath(ctx, v.shape, r);
+      ctx.clip();
       ctx.strokeStyle = s.gold;
-      ctx.lineWidth = 0.65 + damageRatio * 0.7;
-      ctx.globalAlpha = 0.4 + damageRatio * 0.5;
-      ctx.setLineDash([2, 2.5]);
-      for (let i = 0; i < rays; i++) {
-        const a = -Math.PI / 2 + (i / rays) * Math.PI * 2;
+      ctx.lineWidth = 1.1 + damageRatio * 0.8;
+      ctx.globalAlpha = 0.55 + damageRatio * 0.35;
+      const branches = Math.ceil(2 + damageRatio * 3);
+      for (let i = 0; i < Math.min(branches, v.cracks.length); i++) {
+        const br = v.cracks[i];
         ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * coreR, Math.sin(a) * coreR);
-        ctx.lineTo(Math.cos(a) * r * (0.92 + damageRatio * 0.2), Math.sin(a) * r * (0.92 + damageRatio * 0.2));
+        ctx.moveTo(br.pts[0].x, br.pts[0].y);
+        ctx.lineTo(br.pts[1].x, br.pts[1].y);
+        if (damageRatio > 0.4) ctx.lineTo(br.pts[2].x, br.pts[2].y);
         ctx.stroke();
       }
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
+      ctx.restore();
     }
 
-    ctx.fillStyle = '#f4eee0';
-    ctx.font = this.font('500', 12, true);
+    ctx.fillStyle = ink;
+    ctx.font = this.font('600', 16, true);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${v.hp}`, 0, 1);
+    ctx.fillText(`${v.hp}`, 0, 0.5);
 
     ctx.restore();
   }
@@ -3336,27 +3484,13 @@ export class KintsugiCanvasEngine {
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       return;
     }
-    if (shape === 'DIAMOND') {
-      ctx.moveTo(0, -r * 1.1);
-      ctx.lineTo(r * 0.95, 0);
-      ctx.lineTo(0, r * 1.1);
-      ctx.lineTo(-r * 0.95, 0);
-      ctx.closePath();
-      return;
-    }
-    const sides = shape === 'HEXAGON' ? 6 : 8;
-    const offset = shape === 'OCTAGON' ? Math.PI / 8 : Math.PI / 6;
-    for (let i = 0; i < sides; i++) {
-      const a = offset + (i / sides) * Math.PI * 2;
-      const px = Math.cos(a) * r;
-      const py = Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
+    const verts = this.vesselLocalVerts(shape, r);
+    ctx.moveTo(verts[0].x, verts[0].y);
+    for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
     ctx.closePath();
   }
 
-  private drawGoldenAimThread(ctx: CanvasRenderingContext2D): void {
+  private computeAimPath(): void {
     let rx = this.cradleX;
     let ry = CRADLE_Y - 4;
     let dx = Math.cos(this.aimAngle);
@@ -3366,6 +3500,7 @@ export class KintsugiCanvasEngine {
     let bounces = 0;
     let postVesselSteps = -1;
     const stepLen = 4.5;
+    this.aimContact = null;
 
     for (let s = 0; s < 220 && bounces < 2; s++) {
       rx += dx * stepLen;
@@ -3409,43 +3544,65 @@ export class KintsugiCanvasEngine {
           postVesselSteps = 0;
         } else {
           for (const v of this.vessels) {
-            const d = Math.hypot(rx - v.x, ry - v.y);
-            if (d <= v.radius + 5) {
-              const nx = (rx - v.x) / Math.max(1, d);
-              const ny = (ry - v.y) / Math.max(1, d);
-              const dot = dx * nx + dy * ny;
-              dx -= 2 * dot * nx;
-              dy -= 2 * dot * ny;
-              pts.push({ x: rx, y: ry });
-              bounces++;
-              postVesselSteps = 0;
-              break;
+            const hit = this.vesselContact(rx, ry, 3.2, v);
+            if (!hit) continue;
+            if (!this.aimContact) {
+              this.aimContact = {
+                vesselId: v.id,
+                x: hit.qx,
+                y: hit.qy,
+                nx: hit.nx,
+                ny: hit.ny,
+              };
             }
+            const dot = dx * hit.nx + dy * hit.ny;
+            dx -= 2 * dot * hit.nx;
+            dy -= 2 * dot * hit.ny;
+            rx = hit.qx + hit.nx * 4;
+            ry = hit.qy + hit.ny * 4;
+            pts.push({ x: rx, y: ry });
+            bounces++;
+            postVesselSteps = 0;
+            break;
           }
         }
       }
     }
     pts.push({ x: rx, y: ry });
+    this.aimPts = pts;
+  }
+
+  private drawGoldenAimThread(ctx: CanvasRenderingContext2D): void {
+    const pts = this.aimPts;
+    if (pts.length < 2) this.computeAimPath();
+    const path = this.aimPts;
+    if (path.length < 2) return;
 
     ctx.save();
     ctx.strokeStyle = this.isDrawingThread ? this.skin.aim : this.skin.aimIdle;
     ctx.shadowColor = this.skin.gold;
     ctx.shadowBlur = false ? 0 : this.isDrawingThread ? 8 : 3;
     ctx.lineWidth = this.isDrawingThread ? this.skin.aimWidth + 0.4 : this.skin.aimWidth;
-    ctx.setLineDash(true ? [2, 6] : false ? [3, 7] : [4, 6]);
+    ctx.setLineDash([2, 6]);
     ctx.lineDashOffset = -this.timeSec * 34;
 
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) {
-      ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let i = 1; i < path.length; i++) {
+      ctx.lineTo(path[i].x, path[i].y);
     }
     ctx.stroke();
 
-    const firstImpact = pts[Math.min(1, pts.length - 1)];
     ctx.setLineDash([]);
-    this.traceChartStar(ctx, firstImpact.x, firstImpact.y, 5.2, 4);
-    ctx.stroke();
+    if (this.aimContact) {
+      const c = this.aimContact;
+      ctx.strokeStyle = this.skin.gold;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(c.x + c.nx * 10, c.y + c.ny * 10);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

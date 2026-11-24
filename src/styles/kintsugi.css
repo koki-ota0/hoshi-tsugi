@@ -373,9 +373,9 @@ body {
 .resonance-note {
   font-family: var(--ui);
   font-style: italic;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  color: var(--lamp);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: var(--lamp-bright);
 }
 
 .ff-btn {
