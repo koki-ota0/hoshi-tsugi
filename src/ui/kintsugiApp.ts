@@ -367,7 +367,7 @@ export class KintsugiApp {
       if (hud.phase === 'FLIGHT') {
         const parts: string[] = [];
         if (hud.activePearlCount > 1) parts.push(`${hud.activePearlCount}星`);
-        if (hud.chainCount > 0) parts.push(magnitudeOf(hud.chainCount).jp);
+        if (hud.chainCount > 0) parts.push(`${hud.chainCount} · ${magnitudeOf(hud.chainCount).jp}`);
         chainEl.textContent = parts.join('  ');
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         chainEl.textContent = `×${hud.basePearlCount}`;
