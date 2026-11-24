@@ -105,7 +105,10 @@ export class KintsugiApp {
           </div>
           <div class="bottom-right-group">
             <span class="resonance-note" id="hud-chain"></span>
-            <button class="ff-btn" id="btn-ff" data-testid="btn-ff">急</button>
+            <button class="ff-btn" id="btn-ff" data-testid="btn-ff" type="button" title="時を急ぐ">
+              <span class="ff-chevrons" aria-hidden="true"><i></i><i></i></span>
+              <span class="ff-cap">流</span>
+            </button>
           </div>
         </footer>
 
@@ -148,6 +151,13 @@ export class KintsugiApp {
       onRunPersist: (snap) => {
         this.run = snap;
         saveRun(snap);
+        const nextClear = Math.max(this.record.peakClearPearls, snap.stageClearBonusPearls);
+        const nextOrbs = Math.max(this.record.peakOrbPearls, snap.collectedOrbPearls);
+        if (nextClear !== this.record.peakClearPearls || nextOrbs !== this.record.peakOrbPearls) {
+          this.record.peakClearPearls = nextClear;
+          this.record.peakOrbPearls = nextOrbs;
+          saveRecord(this.record);
+        }
       },
       onAwakeningReady: (stageCleared, maxChain) => {
         this.lastClearedStage = stageCleared;
@@ -233,7 +243,10 @@ export class KintsugiApp {
     this.record.runsPlayed += 1;
     saveRecord(this.record);
     this.playing = true;
-    this.engine.beginRun(startStage, false);
+    this.engine.beginRun(startStage, false, {
+      clear: this.record.peakClearPearls,
+      orbs: this.record.peakOrbPearls,
+    });
   }
 
   private continueRun(): void {
@@ -392,16 +405,18 @@ export class KintsugiApp {
     }
 
     if (ffBtn) {
-      ffBtn.style.display = hud.phase === 'FLIGHT' ? 'inline-block' : 'none';
+      ffBtn.style.display = hud.phase === 'FLIGHT' ? 'inline-flex' : 'none';
       ffBtn.classList.toggle('active', hud.fastForward);
-      ffBtn.textContent = hud.fastForward ? '急!' : '急';
+      const cap = ffBtn.querySelector('.ff-cap');
+      if (cap) cap.textContent = hud.fastForward ? '迅' : '流';
     }
 
     if (chainEl) {
       if (hud.phase === 'FLIGHT') {
         const parts: string[] = [];
         if (hud.activePearlCount > 1) parts.push(`${hud.activePearlCount}星`);
-        if (hud.chainCount > 0) parts.push(`${hud.chainCount} · ${magnitudeOf(hud.chainCount).jp}`);
+        if (hud.chainCount > 0)
+          parts.push(`${hud.chainCount} · ${magnitudeOf(hud.chainCount, hud.basePearlCount).jp}`);
         chainEl.textContent = parts.join('  ');
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         chainEl.textContent =
@@ -578,7 +593,7 @@ export class KintsugiApp {
     result: { newNight: boolean; newChain: boolean; newFigure: boolean; rank: number; total: number; figureBest: number }
   ): void {
     const host = this.frame.querySelector('#ceremony-host') as HTMLElement;
-    const mag = magnitudeOf(info.chain);
+    const mag = magnitudeOf(info.chain, info.pearlCount);
     const plate = SEASON_PLATE[info.season as keyof typeof SEASON_PLATE];
     const stamps = [
       result.newNight ? '<span class="new-stamp">新図</span>' : '',
@@ -609,6 +624,11 @@ export class KintsugiApp {
             <div class="chain-pop"><span>結星</span><strong>${info.chain}</strong></div>
             <div><span>星</span><strong>×${info.pearlCount}</strong></div>
           </div>
+          ${
+            info.nextPearlDamage > info.pearlDamage
+              ? `<div class="clear-wound">傷 ${info.pearlDamage} → ${info.nextPearlDamage}</div>`
+              : ''
+          }
           <div class="clear-metrics slim">
             <div>この図の最高<strong>${result.figureBest}</strong></div>
             <div>通算最高<strong>${this.record.longestResonance}</strong></div>
@@ -735,7 +755,10 @@ export class KintsugiApp {
       this.record.runsPlayed += 1;
       saveRecord(this.record);
       this.playing = true;
-      this.engine.beginRun(1, false);
+      this.engine.beginRun(1, false, {
+        clear: this.record.peakClearPearls,
+        orbs: this.record.peakOrbPearls,
+      });
     });
     host.querySelector('#btn-broken-home')?.addEventListener('click', () => {
       this.clearCeremonyModal();

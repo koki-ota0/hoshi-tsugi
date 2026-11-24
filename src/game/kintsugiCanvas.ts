@@ -18,10 +18,10 @@ import {
   stagePearlDamage,
 } from './kintsugiData';
 import {
-  MAGNITUDE_MILESTONES,
   atlasFigure,
   geometryFigure,
   geometryLayout,
+  magnitudeMilestones,
   magnitudeOf,
 } from './constellations';
 import { SKIN, type CanvasSkin, type VisualTheme } from './visualTheme';
@@ -30,7 +30,7 @@ export const TABLET_W = 390;
 export const TABLET_H = 660;
 const CRADLE_Y = 596;
 const SEAL_LINE_Y = 552;
-const TURN_DESCENT_Y = 46;
+const TURN_DESCENT_Y = 28;
 const BOSS_DESCENT_Y = 34;
 const MAX_PEARLS = 200;
 
@@ -266,6 +266,8 @@ export class KintsugiCanvasEngine {
 
   public collectedOrbPearls = 0;
   public stageClearBonusPearls = 0;
+  private pearlFloorClear = 0;
+  private pearlFloorOrbs = 0;
   private pendingAwakening = false;
   private clearBurstTimer = 0;
 
@@ -475,14 +477,27 @@ export class KintsugiCanvasEngine {
     this.beginRun(1, fireImmediately);
   }
 
-  public beginRun(startStage = 1, fireImmediately = false): void {
+  public beginRun(
+    startStage = 1,
+    fireImmediately = false,
+    pearlFloor?: { clear: number; orbs: number }
+  ): void {
     this.stage = Math.max(1, startStage);
     this.awakeningSeals = 0;
     this.integrity = 3;
     this.maxIntegrity = 3;
     this.longestChainInRun = 0;
-    this.collectedOrbPearls = 0;
-    this.stageClearBonusPearls = constellationClearsBefore(startStage);
+    if (pearlFloor) {
+      this.pearlFloorClear = Math.max(this.pearlFloorClear, pearlFloor.clear);
+      this.pearlFloorOrbs = Math.max(this.pearlFloorOrbs, pearlFloor.orbs);
+    }
+    this.stageClearBonusPearls = Math.max(
+      constellationClearsBefore(startStage),
+      this.pearlFloorClear
+    );
+    this.collectedOrbPearls = Math.max(0, this.pearlFloorOrbs);
+    this.pearlFloorClear = Math.max(this.pearlFloorClear, this.stageClearBonusPearls);
+    this.pearlFloorOrbs = Math.max(this.pearlFloorOrbs, this.collectedOrbPearls);
     this.pendingAwakening = false;
     this.fastForward = false;
     this.ranks = emptyRanks();
@@ -532,6 +547,7 @@ export class KintsugiCanvasEngine {
 
   private persistRun(): void {
     if (this.phase === 'PROLOGUE' || this.phase === 'SHATTERED') return;
+    this.bumpPearlFloor();
     this.cb.onRunPersist(this.exportRun());
   }
 
@@ -557,9 +573,14 @@ export class KintsugiCanvasEngine {
     return 6 + this.stageClearBonusPearls + this.collectedOrbPearls + surge;
   }
 
+  private bumpPearlFloor(): void {
+    this.pearlFloorClear = Math.max(this.pearlFloorClear, this.stageClearBonusPearls);
+    this.pearlFloorOrbs = Math.max(this.pearlFloorOrbs, this.collectedOrbPearls);
+  }
+
   public getCurrentPearlDamage(): number {
     let dmg = stagePearlDamage(this.stage);
-    if (this.ranks.bounce_split >= 5 && this.chainCount >= 80) dmg *= 2;
+    if (this.ranks.bounce_split >= 5 && this.chainCount >= this.getBasePearlCount() * 15) dmg *= 2;
     return dmg;
   }
 
@@ -669,7 +690,7 @@ export class KintsugiCanvasEngine {
     const ids: number[] = [];
     fig.stars.forEach((star) => {
       const p = this.mapStar(star.x, star.y);
-      const hp = Math.round(bp.baseHp * (star.armored ? 1.7 : star.vermilion ? 0.55 : 1));
+      const hp = Math.round(bp.baseHp * (star.armored ? 1.7 : star.vermilion ? 0.8 : 1));
       this.addVessel(
         p.x,
         p.y,
@@ -692,7 +713,7 @@ export class KintsugiCanvasEngine {
       this.addVessel(
         p.x,
         p.y,
-        Math.max(3, Math.round(bp.baseHp * 0.7)),
+        Math.max(3, Math.round(bp.baseHp * 0.9)),
         extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'HEXAGON',
         Boolean(extra.vermilion),
         Boolean(extra.armored),
@@ -726,7 +747,7 @@ export class KintsugiCanvasEngine {
         this.addVessel(
           p.x,
           p.y,
-          Math.max(3, Math.round(bp.baseHp * (extra.armored ? 1.1 : 0.65))),
+          Math.max(3, Math.round(bp.baseHp * (extra.armored ? 1.15 : 0.85))),
           extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'HEXAGON',
           Boolean(extra.vermilion),
           Boolean(extra.armored),
@@ -837,7 +858,7 @@ export class KintsugiCanvasEngine {
       this.addVessel(
         p.x,
         p.y,
-        Math.round(bp.baseHp * (star.hpMul ?? 1) * (vermilion ? 0.55 : 1)),
+        Math.round(bp.baseHp * (star.hpMul ?? 1) * (vermilion ? 0.8 : 1)),
         shape,
         vermilion,
         armored,
@@ -2013,7 +2034,8 @@ export class KintsugiCanvasEngine {
 
   private incrementChain(x?: number, y?: number): void {
     this.chainCount += 1;
-    const milestone = MAGNITUDE_MILESTONES.includes(this.chainCount);
+    const pearls = this.getBasePearlCount();
+    const milestone = magnitudeMilestones(pearls).includes(this.chainCount);
     this.chainPopScale = milestone ? 1.72 : Math.max(this.chainPopScale, 1.18);
     this.comboFlash = Math.max(this.comboFlash, milestone ? 1 : 0.38);
     if (this.chainCount > this.longestChainInRun) {
@@ -2060,13 +2082,13 @@ export class KintsugiCanvasEngine {
 
     if (milestone) {
       this.comboFlash = 0.42;
-      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= 21 ? 0.08 : 0.045);
+      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= pearls * 8 ? 0.08 : 0.045);
       this.shakeTimer = Math.max(this.shakeTimer, 0.18);
-      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= 34 ? 6 : 3.5);
+      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= pearls * 12 ? 6 : 3.5);
       this.veilAlpha = Math.max(this.veilAlpha, 0.12);
       this.veilColor = this.skin.gold;
       if (x != null && y != null) {
-        const mag = magnitudeOf(this.chainCount);
+        const mag = magnitudeOf(this.chainCount, pearls);
         this.ripples.push({
           x,
           y,
@@ -2085,7 +2107,7 @@ export class KintsugiCanvasEngine {
           alpha: 0.7,
           lineWidth: 1,
         });
-        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= 34 ? 16 : 13);
+        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= pearls * 12 ? 16 : 13);
         for (let i = 0; i < 10; i++) {
           const ang = (i / 10) * Math.PI * 2;
           this.sparks.push({
@@ -2099,7 +2121,7 @@ export class KintsugiCanvasEngine {
           });
         }
       }
-      if (this.chainCount >= 21) sound.playKintsugiConvergence();
+      if (this.chainCount >= pearls * 8) sound.playKintsugiConvergence();
       else sound.playAstrolabeTwin();
     }
   }
@@ -2210,6 +2232,7 @@ export class KintsugiCanvasEngine {
     this.fastForward = false;
     if (isConstellationStage(this.stage)) {
       this.stageClearBonusPearls += 1;
+      this.bumpPearlFloor();
     }
     sound.playActComplete();
 
@@ -2261,6 +2284,8 @@ export class KintsugiCanvasEngine {
       pearlCount: this.getBasePearlCount(),
       chain: this.chainCount,
       longestChain: this.longestChainInRun,
+      pearlDamage: stagePearlDamage(this.stage),
+      nextPearlDamage: stagePearlDamage(this.stage + 1),
     });
     this.emitHud();
   }
@@ -3337,7 +3362,7 @@ export class KintsugiCanvasEngine {
 
   private drawComboAstrolabe(ctx: CanvasRenderingContext2D): void {
     if (this.phase !== 'FLIGHT' || this.chainCount < 1) return;
-    const mag = magnitudeOf(this.chainCount);
+    const mag = magnitudeOf(this.chainCount, this.getBasePearlCount());
     const flash = this.comboFlash;
     ctx.save();
     ctx.translate(TABLET_W * 0.5, 38);

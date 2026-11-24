@@ -380,20 +380,62 @@ body {
 
 .ff-btn {
   display: none;
-  background: none;
-  color: var(--paper-dim);
-  border: 1px solid var(--line);
-  font-family: var(--ui);
-  font-style: italic;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  padding: 3px 8px;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 7px;
+  background: #efe6d2;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  outline: 1px solid var(--line);
+  outline-offset: 2px;
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.22em;
   cursor: pointer;
 }
-
+.ff-btn:hover {
+  background: #f7f1e3;
+}
+.ff-chevrons {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.ff-chevrons i {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent var(--ink);
+}
+.ff-cap {
+  min-width: 1.2em;
+  line-height: 1;
+}
 .ff-btn.active {
-  color: var(--lamp);
+  background: var(--ink);
+  color: #f4eee0;
   border-color: var(--lamp);
+  outline-color: var(--lamp);
+  box-shadow: 0 0 0 1px var(--lamp);
+}
+.ff-btn.active .ff-chevrons i {
+  border-left-color: #e8c56a;
+  animation: ff-run 0.45s steps(2) infinite;
+}
+.ff-btn.active .ff-chevrons i:last-child {
+  animation-delay: 0.12s;
+}
+@keyframes ff-run {
+  0% {
+    opacity: 0.35;
+    transform: translateX(-1px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(1px);
+  }
 }
 
 .menu-sheet {
@@ -897,6 +939,19 @@ body {
   font-size: 12px;
   color: var(--paper-dim);
   margin-top: 4px;
+}
+
+.clear-wound {
+  margin: 10px 0 2px;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: var(--cinnabar);
+}
+.clear-wound.quiet {
+  color: var(--ink);
+  opacity: 0.55;
+  font-size: 12px;
+  letter-spacing: 0.14em;
 }
 
 .clear-stamps {

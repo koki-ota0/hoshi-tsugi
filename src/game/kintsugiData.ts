@@ -245,15 +245,21 @@ export function constellationClearsBefore(stage: number): number {
   return Math.max(0, Math.floor((Math.max(1, stage) - 1) / 3));
 }
 
-/** 珠の基礎ダメージ。耐久と同じく指数で伸び、撃破手数はほぼ一定。 */
+/** 傷はゆっくり段で上がる。耐久は傷と、その図で想定する珠の数に追従する。 */
 export function stagePearlDamage(stage: number): number {
-  const t = Math.max(0, stage - 1);
-  return Math.max(1, Math.floor(Math.pow(1.22, t) + 0.2));
+  if (stage <= 4) return 1;
+  return 1 + Math.floor((stage - 2) / 3);
+}
+
+export function expectedPearlCount(stage: number): number {
+  return 6 + constellationClearsBefore(stage);
 }
 
 export function stageBaseHp(stage: number): number {
-  const t = Math.max(0, stage - 1);
-  return Math.max(4, Math.round(4 * Math.pow(1.23, t)));
+  const dmg = stagePearlDamage(stage);
+  const shots = 8 + Math.ceil(stage / 2);
+  const volley = expectedPearlCount(stage) / 6;
+  return Math.round(dmg * shots * volley);
 }
 
 export function getStageBlueprint(stage: number): StageBlueprint {
@@ -272,7 +278,7 @@ export function getStageBlueprint(stage: number): StageBlueprint {
       archetype: 'GUARDIAN_BOSS',
       tier: 'grand',
       geometry: null,
-      baseHp: raw,
+      baseHp: Math.round(raw * 1.5),
     };
   }
 
@@ -289,7 +295,7 @@ export function getStageBlueprint(stage: number): StageBlueprint {
       archetype: 'CONSTELLATION',
       tier: mid ? 'mid' : 'normal',
       geometry: null,
-      baseHp: Math.round(raw * (mid ? 1.28 : 1.08)),
+      baseHp: Math.round(raw * (mid ? 1.22 : 1.12)),
     };
   }
 
@@ -305,7 +311,7 @@ export function getStageBlueprint(stage: number): StageBlueprint {
     archetype: 'GEOMETRY',
     tier: 'normal',
     geometry: kind,
-    baseHp: Math.round(raw * 0.88),
+    baseHp: raw,
   };
 }
 
@@ -333,6 +339,8 @@ export interface KintsugiRecord {
   theme: VisualTheme;
   bestChainByStage: Record<string, number>;
   ledger: LedgerEntry[];
+  peakClearPearls: number;
+  peakOrbPearls: number;
 }
 
 export interface RunSnapshot {
@@ -357,6 +365,8 @@ export interface StageClearInfo {
   pearlCount: number;
   chain: number;
   longestChain: number;
+  pearlDamage: number;
+  nextPearlDamage: number;
 }
 
 const STORAGE_KEY = 'hoshitsugi_kintsugi_record_v5';
@@ -387,6 +397,8 @@ export function emptyRecord(): KintsugiRecord {
     theme: 'atlas',
     bestChainByStage: {},
     ledger: [],
+    peakClearPearls: 0,
+    peakOrbPearls: 0,
   };
 }
 
@@ -408,6 +420,8 @@ export function loadRecord(): KintsugiRecord {
         theme: 'atlas',
         bestChainByStage: parsed.bestChainByStage ?? {},
         ledger: Array.isArray(parsed.ledger) ? parsed.ledger : [],
+        peakClearPearls: parsed.peakClearPearls ?? 0,
+        peakOrbPearls: parsed.peakOrbPearls ?? 0,
       };
     }
   } catch {
