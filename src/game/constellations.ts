@@ -91,22 +91,23 @@ export interface MagnitudeGrade {
   mag: number;
 }
 
-/** 珠の数に対する倍率。8倍で超新星。 */
+/** 珠の数に対する倍率。六等は2倍から、超新星は15倍。零等は織女の明るさ。 */
 export function magnitudeMilestones(pearlCount: number): number[] {
   const n = Math.max(1, pearlCount);
   return [
-    Math.ceil(n * 1.25),
     Math.ceil(n * 2),
-    Math.ceil(n * 3),
-    Math.ceil(n * 4.5),
+    Math.ceil(n * 4),
     Math.ceil(n * 6),
-    Math.ceil(n * 7),
-    n * 8,
+    Math.ceil(n * 8),
+    Math.ceil(n * 10),
+    Math.ceil(n * 12),
+    Math.ceil(n * 13.5),
+    n * 15,
   ];
 }
 
 export function magnitudeOf(chain: number, pearlCount = 6): MagnitudeGrade {
-  const [v, iv, iii, ii, i, zero, nova] = magnitudeMilestones(pearlCount);
+  const [vi, v, iv, iii, ii, i, zero, nova] = magnitudeMilestones(pearlCount);
   if (chain >= nova) return { jp: '超新星', la: 'SUPERNOVA', mag: -4 };
   if (chain >= zero) return { jp: '零等星', la: 'MAGNITUDO 0', mag: 0 };
   if (chain >= i) return { jp: '一等星', la: 'MAGNITUDO I', mag: 1 };
@@ -114,7 +115,8 @@ export function magnitudeOf(chain: number, pearlCount = 6): MagnitudeGrade {
   if (chain >= iii) return { jp: '三等星', la: 'MAGNITUDO III', mag: 3 };
   if (chain >= iv) return { jp: '四等星', la: 'MAGNITUDO IV', mag: 4 };
   if (chain >= v) return { jp: '五等星', la: 'MAGNITUDO V', mag: 5 };
-  return { jp: '六等星', la: 'MAGNITUDO VI', mag: 6 };
+  if (chain >= vi) return { jp: '六等星', la: 'MAGNITUDO VI', mag: 6 };
+  return { jp: '微光', la: 'NEBULA', mag: 7 };
 }
 
 interface Recipe {

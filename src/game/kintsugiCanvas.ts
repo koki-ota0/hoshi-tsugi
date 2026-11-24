@@ -580,7 +580,7 @@ export class KintsugiCanvasEngine {
 
   public getCurrentPearlDamage(): number {
     let dmg = stagePearlDamage(this.stage);
-    if (this.ranks.bounce_split >= 5 && this.chainCount >= this.getBasePearlCount() * 8) dmg *= 2;
+    if (this.ranks.bounce_split >= 5 && this.chainCount >= this.getBasePearlCount() * 15) dmg *= 2;
     return dmg;
   }
 
@@ -2082,9 +2082,9 @@ export class KintsugiCanvasEngine {
 
     if (milestone) {
       this.comboFlash = 0.42;
-      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= pearls * 4.5 ? 0.08 : 0.045);
+      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= pearls * 8 ? 0.08 : 0.045);
       this.shakeTimer = Math.max(this.shakeTimer, 0.18);
-      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= pearls * 6 ? 6 : 3.5);
+      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= pearls * 12 ? 6 : 3.5);
       this.veilAlpha = Math.max(this.veilAlpha, 0.12);
       this.veilColor = this.skin.gold;
       if (x != null && y != null) {
@@ -2107,7 +2107,7 @@ export class KintsugiCanvasEngine {
           alpha: 0.7,
           lineWidth: 1,
         });
-        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= pearls * 6 ? 16 : 13);
+        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= pearls * 12 ? 16 : 13);
         for (let i = 0; i < 10; i++) {
           const ang = (i / 10) * Math.PI * 2;
           this.sparks.push({
@@ -2121,7 +2121,7 @@ export class KintsugiCanvasEngine {
           });
         }
       }
-      if (this.chainCount >= pearls * 4.5) sound.playKintsugiConvergence();
+      if (this.chainCount >= pearls * 8) sound.playKintsugiConvergence();
       else sound.playAstrolabeTwin();
     }
   }

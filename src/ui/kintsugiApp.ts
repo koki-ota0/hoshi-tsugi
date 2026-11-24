@@ -105,7 +105,10 @@ export class KintsugiApp {
           </div>
           <div class="bottom-right-group">
             <span class="resonance-note" id="hud-chain"></span>
-            <button class="ff-btn" id="btn-ff" data-testid="btn-ff">急</button>
+            <button class="ff-btn" id="btn-ff" data-testid="btn-ff" type="button" title="時を急ぐ">
+              <span class="ff-chevrons" aria-hidden="true"><i></i><i></i></span>
+              <span class="ff-cap">流</span>
+            </button>
           </div>
         </footer>
 
@@ -402,9 +405,10 @@ export class KintsugiApp {
     }
 
     if (ffBtn) {
-      ffBtn.style.display = hud.phase === 'FLIGHT' ? 'inline-block' : 'none';
+      ffBtn.style.display = hud.phase === 'FLIGHT' ? 'inline-flex' : 'none';
       ffBtn.classList.toggle('active', hud.fastForward);
-      ffBtn.textContent = hud.fastForward ? '急!' : '急';
+      const cap = ffBtn.querySelector('.ff-cap');
+      if (cap) cap.textContent = hud.fastForward ? '迅' : '流';
     }
 
     if (chainEl) {
