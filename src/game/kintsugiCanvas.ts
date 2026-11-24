@@ -16,7 +16,13 @@ import {
   isBossStage,
   isConstellationStage,
 } from './kintsugiData';
-import { MAGNITUDE_MILESTONES, atlasFigure, magnitudeOf } from './constellations';
+import {
+  MAGNITUDE_MILESTONES,
+  atlasFigure,
+  geometryFigure,
+  geometryLayout,
+  magnitudeOf,
+} from './constellations';
 import { SKIN, type CanvasSkin, type VisualTheme } from './visualTheme';
 
 export const TABLET_W = 390;
@@ -49,6 +55,7 @@ export interface PorcelainVessel {
   hitFlash: number;
   scalePop: number;
   cracks: CrackBranch[];
+  isObstacle?: boolean;
 }
 
 export interface PearlOrb {
@@ -669,7 +676,8 @@ export class KintsugiCanvasEngine {
         star.vermilion ? 'DIAMOND' : star.armored ? 'OCTAGON' : shapes[i % 3],
         Boolean(star.vermilion),
         Boolean(star.armored),
-        star.drift ?? 0
+        star.drift ?? 0,
+        false
       );
       ids.push(this.vessels[this.vessels.length - 1].id);
     });
@@ -686,7 +694,8 @@ export class KintsugiCanvasEngine {
         extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'DISC',
         Boolean(extra.vermilion),
         Boolean(extra.armored),
-        extra.drift ?? 0
+        extra.drift ?? 0,
+        true
       );
     }
 
@@ -711,7 +720,8 @@ export class KintsugiCanvasEngine {
           extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'HEXAGON',
           Boolean(extra.vermilion),
           Boolean(extra.armored),
-          extra.drift ?? 0
+          extra.drift ?? 0,
+          true
         );
       }
     }
@@ -801,143 +811,34 @@ export class KintsugiCanvasEngine {
   private buildGeometry(bp: StageBlueprint): void {
     const kind = bp.geometry ?? 'gate';
     const heat = Math.min(1, Math.max(0, (bp.stage - 10) / 50));
-    const drift = kind === 'orbit' || bp.stage >= 22 ? 18 + heat * 16 : 0;
-    const bombChance = 0.08 + heat * 0.18;
+    const columnDrift = kind === 'columns' && bp.stage >= 22 ? 18 + heat * 16 : 0;
+    const layout = geometryLayout(kind);
+    const ids: number[] = [];
 
-    const put = (
-      nx: number,
-      ny: number,
-      hpMul = 1,
-      vermilion = false,
-      armored = false,
-      vx = 0,
-      shape?: 'OCTAGON' | 'DIAMOND' | 'HEXAGON' | 'DISC'
-    ): void => {
-      const p = this.mapStar(nx, ny);
-      const isBomb = vermilion || Math.random() < bombChance * 0.35;
+    for (const star of layout) {
+      const p = this.mapStar(star.x, star.y);
+      const vermilion = Boolean(star.vermilion);
+      const armored = Boolean(star.armored);
+      let vx = star.vx ?? 0;
+      if (vx === 0 && columnDrift) vx = (star.x < 0.5 ? 1 : -1) * columnDrift * 0.6;
+      const shape: VesselShape =
+        star.shape ?? (armored ? 'OCTAGON' : vermilion ? 'DIAMOND' : 'HEXAGON');
       this.addVessel(
         p.x,
         p.y,
-        Math.round(bp.baseHp * hpMul * (isBomb ? 0.55 : 1)),
-        shape ?? (armored ? 'OCTAGON' : isBomb ? 'DIAMOND' : 'HEXAGON'),
-        isBomb,
+        Math.round(bp.baseHp * (star.hpMul ?? 1) * (vermilion ? 0.55 : 1)),
+        shape,
+        vermilion,
         armored,
-        vx
+        vx,
+        false
       );
-    };
-
-    if (kind === 'gate') {
-      for (const c of [0.2, 0.4, 0.6, 0.8]) put(c, 0.18, 1.1);
-      for (const c of [0.2, 0.8]) {
-        put(c, 0.42, 1);
-        put(c, 0.66, 0.9, false, false, 0, 'DIAMOND');
-      }
-    } else if (kind === 'wings') {
-      for (let i = 0; i < 6; i++) put(0.08 + i * 0.168, 0.16, 1.15);
-      for (const c of [0.08, 0.24, 0.76, 0.92]) put(c, 0.4, 1);
-      for (const c of [0.24, 0.5, 0.76]) put(c, 0.64, 0.85, false, false, 0, 'DISC');
-    } else if (kind === 'steps') {
-      for (let r = 0; r < 3; r++) {
-        const n = 4 + r;
-        for (let i = 0; i < n; i++) {
-          put(0.12 + (0.76 * i) / (n - 1), 0.18 + r * 0.26, 1.1 - r * 0.12);
-        }
-      }
-    } else if (kind === 'cluster') {
-      for (let i = 0; i < 6; i++) put(0.12 + i * 0.15, 0.16, 1.1);
-      for (let i = 0; i < 6; i++) put(0.12 + i * 0.15, 0.44, i === 2 || i === 3 ? 0.6 : 1, i === 2 || i === 3);
-      for (let i = 1; i < 5; i++) put(0.12 + i * 0.15, 0.7, i === 1 || i === 4 ? 0.6 : 0.9, i === 1 || i === 4);
-    } else if (kind === 'shower') {
-      for (let r = 0; r < 4; r++) {
-        for (let c = 0; c < 6; c++) {
-          if ((r + c) % 5 === 0) continue;
-          put(0.08 + c * 0.168, 0.12 + r * 0.2, 0.85, (r + c) % 7 === 0);
-        }
-      }
-    } else if (kind === 'bastion') {
-      for (let i = 0; i < 6; i++) put(0.08 + i * 0.168, 0.16, 0.9);
-      for (let i = 1; i < 5; i++) put(0.08 + i * 0.168, 0.4, 0.85, i === 2 || i === 3);
-      for (let i = 1; i < 5; i++) put(0.08 + i * 0.168, 0.66, 1.7, false, true, 0, 'OCTAGON');
-    } else if (kind === 'orbit') {
-      for (let r = 0; r < 4; r++) {
-        const vx = (r % 2 === 0 ? 1 : -1) * (20 + r * 4);
-        const cols = r % 2 === 0 ? [0, 1, 3, 4] : [1, 2, 4, 5];
-        for (const c of cols) {
-          put(0.08 + c * 0.168, 0.14 + r * 0.2, 1, r === 2 && (c === 2 || c === 4), false, vx, 'DISC');
-        }
-      }
-    } else if (kind === 'triangle') {
-      const rows = [
-        [0.5],
-        [0.35, 0.65],
-        [0.22, 0.5, 0.78],
-        [0.12, 0.34, 0.66, 0.88],
-      ];
-      rows.forEach((row, r) => {
-        row.forEach((x, i) => put(x, 0.14 + r * 0.22, r === 0 ? 1.6 : 1, false, r === 0));
-      });
-    } else if (kind === 'hex') {
-      put(0.5, 0.46, 1.5, false, true, 0, 'HEXAGON');
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-        put(0.5 + Math.cos(a) * 0.34, 0.46 + Math.sin(a) * 0.32, 1);
-      }
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        put(0.5 + Math.cos(a) * 0.18, 0.46 + Math.sin(a) * 0.16, 0.85, i % 2 === 0);
-      }
-    } else if (kind === 'diamond') {
-      const pts = [
-        [0.5, 0.1],
-        [0.32, 0.32],
-        [0.68, 0.32],
-        [0.18, 0.54],
-        [0.5, 0.54],
-        [0.82, 0.54],
-        [0.32, 0.76],
-        [0.68, 0.76],
-        [0.5, 0.9],
-      ];
-      pts.forEach(([x, y], i) => put(x, y, i === 4 ? 1.5 : 1, false, i === 4, 0, 'DIAMOND'));
-    } else if (kind === 'wedge') {
-      for (let r = 0; r < 5; r++) {
-        const n = r + 1;
-        for (let i = 0; i < n; i++) {
-          const x = 0.5 + (i - (n - 1) / 2) * 0.16;
-          put(x, 0.12 + r * 0.17, r === 0 ? 1.4 : 1, false, r === 0);
-        }
-      }
-    } else if (kind === 'spiral') {
-      for (let i = 0; i < 12; i++) {
-        const t = i / 12;
-        const a = t * Math.PI * 3.2;
-        const rad = 0.08 + t * 0.34;
-        put(0.5 + Math.cos(a) * rad, 0.46 + Math.sin(a) * rad * 0.9, i === 0 ? 1.5 : 0.95, i === 8, i === 0);
-      }
-    } else if (kind === 'columns') {
-      for (let r = 0; r < 5; r++) {
-        put(0.28, 0.12 + r * 0.18, 1, false, r === 0, drift * 0.6);
-        put(0.72, 0.12 + r * 0.18, 1, r === 2, r === 0, -drift * 0.6);
-      }
-    } else if (kind === 'checker') {
-      for (let r = 0; r < 4; r++) {
-        for (let c = 0; c < 5; c++) {
-          const bomb = (r + c) % 2 === 0;
-          put(0.14 + c * 0.18, 0.14 + r * 0.22, bomb ? 0.7 : 1.05, bomb);
-        }
-      }
-    } else if (kind === 'ring') {
-      for (let i = 0; i < 10; i++) {
-        const a = (i / 10) * Math.PI * 2;
-        put(0.5 + Math.cos(a) * 0.38, 0.46 + Math.sin(a) * 0.34, 1);
-      }
-      put(0.5, 0.46, 1.6, false, true, 0, 'OCTAGON');
-    } else if (kind === 'cross') {
-      for (let i = 0; i < 5; i++) put(0.5, 0.1 + i * 0.18, i === 2 ? 1.5 : 1, false, i === 2);
-      for (const x of [0.18, 0.34, 0.66, 0.82]) put(x, 0.46, 1);
-    } else {
-      for (let i = 0; i < 5; i++) put(0.15 + i * 0.175, 0.35, 1);
+      ids.push(this.vessels[this.vessels.length - 1].id);
     }
+
+    this.figureLinks = geometryFigure(kind)
+      .edges.filter(([a, b]) => ids[a] && ids[b])
+      .map(([a, b]) => [ids[a], ids[b]]);
 
     this.addOrb(TABLET_W * 0.18, 310, 1);
     if (bp.stage >= 2) this.addOrb(TABLET_W * 0.82, 278, 1);
@@ -957,10 +858,11 @@ export class KintsugiCanvasEngine {
     shape: VesselShape,
     isVermilion: boolean,
     isArmored: boolean,
-    vx: number
+    vx: number,
+    isObstacle = false
   ): void {
     const finalHp = Math.max(3, hp);
-    const radius = isArmored ? 21 : 18.5;
+    const radius = isArmored ? 21 : isObstacle ? 16.2 : 18.5;
     this.vessels.push({
       id: this.nextId++,
       shape,
@@ -976,6 +878,7 @@ export class KintsugiCanvasEngine {
       hitFlash: 0,
       scalePop: 1,
       cracks: this.generateKintsugiCracks(radius),
+      isObstacle,
     });
   }
 
@@ -3433,26 +3336,59 @@ export class KintsugiCanvasEngine {
     const damageRatio = 1 - Math.max(0, v.hp / v.maxHp);
     const s = this.skin;
     const hit = v.hitFlash;
+    const obstacle = Boolean(v.isObstacle);
     const ink = v.isVermilion ? s.vermilion : v.isArmored ? s.gold : s.ink;
-    const fill =
-      hit > 0.22 ? s.vesselHitHi : v.isVermilion ? '#f3e2d6' : v.isArmored ? s.vesselArmorHi : '#f7f1e3';
+    const fill = hit > 0.22
+      ? s.vesselHitHi
+      : obstacle
+        ? v.isVermilion
+          ? '#d9b8a8'
+          : v.isArmored
+            ? '#b7a888'
+            : '#c8bba3'
+        : v.isVermilion
+          ? '#f3e2d6'
+          : v.isArmored
+            ? s.vesselArmorHi
+            : '#f7f1e3';
 
     this.traceVesselPath(ctx, v.shape, r);
     ctx.fillStyle = fill;
     ctx.fill();
     ctx.strokeStyle = ink;
-    ctx.lineWidth = v.isArmored ? 2.35 : 1.85;
+    ctx.lineWidth = v.isArmored ? 2.35 : obstacle ? 1.55 : 1.85;
     ctx.lineJoin = 'miter';
     ctx.miterLimit = 2.4;
     ctx.stroke();
 
-    const starPts = v.isVermilion ? 4 : v.isArmored ? 8 : v.shape === 'DIAMOND' ? 4 : v.shape === 'HEXAGON' ? 6 : 5;
-    ctx.strokeStyle = ink;
-    ctx.globalAlpha = 0.32;
-    ctx.lineWidth = 0.8;
-    this.traceChartStar(ctx, 0, 0, r * 0.62, starPts);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    if (obstacle) {
+      ctx.save();
+      this.traceVesselPath(ctx, v.shape, r);
+      ctx.clip();
+      ctx.strokeStyle = ink;
+      ctx.globalAlpha = 0.28;
+      ctx.lineWidth = 0.9;
+      const step = 4.2;
+      for (let x = -r; x <= r; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, -r);
+        ctx.lineTo(x, r);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      const starPts = v.isVermilion ? 4 : v.isArmored ? 8 : v.shape === 'DIAMOND' ? 4 : v.shape === 'HEXAGON' ? 6 : 5;
+      ctx.fillStyle = ink;
+      ctx.globalAlpha = 0.16;
+      this.traceChartStar(ctx, 0, 0, r * 0.7, starPts);
+      ctx.fill();
+      ctx.strokeStyle = ink;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1.05;
+      this.traceChartStar(ctx, 0, 0, r * 0.7, starPts);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
 
     const local = this.vesselLocalVerts(v.shape, r);
     const faces = v.shape === 'DISC' ? 0 : local.length;
@@ -3494,13 +3430,27 @@ export class KintsugiCanvasEngine {
     if (v.shape === 'DISC') {
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
-        this.traceChartStar(ctx, Math.cos(a) * r, Math.sin(a) * r, 2.15, 4);
-        ctx.fill();
+        if (obstacle) {
+          ctx.beginPath();
+          ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 1.7, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          this.traceChartStar(ctx, Math.cos(a) * r, Math.sin(a) * r, 2.15, 4);
+          ctx.fill();
+        }
       }
     } else {
       for (const p of local) {
-        this.traceChartStar(ctx, p.x, p.y, 2.2, 4);
-        ctx.fill();
+        if (obstacle) {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(Math.PI / 4);
+          ctx.fillRect(-1.5, -1.5, 3, 3);
+          ctx.restore();
+        } else {
+          this.traceChartStar(ctx, p.x, p.y, 2.2, 4);
+          ctx.fill();
+        }
       }
     }
 
