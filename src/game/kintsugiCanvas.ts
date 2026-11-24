@@ -18,10 +18,10 @@ import {
   stagePearlDamage,
 } from './kintsugiData';
 import {
-  MAGNITUDE_MILESTONES,
   atlasFigure,
   geometryFigure,
   geometryLayout,
+  magnitudeMilestones,
   magnitudeOf,
 } from './constellations';
 import { SKIN, type CanvasSkin, type VisualTheme } from './visualTheme';
@@ -559,7 +559,7 @@ export class KintsugiCanvasEngine {
 
   public getCurrentPearlDamage(): number {
     let dmg = stagePearlDamage(this.stage);
-    if (this.ranks.bounce_split >= 5 && this.chainCount >= 80) dmg *= 2;
+    if (this.ranks.bounce_split >= 5 && this.chainCount >= this.getBasePearlCount() * 8) dmg *= 2;
     return dmg;
   }
 
@@ -2013,7 +2013,8 @@ export class KintsugiCanvasEngine {
 
   private incrementChain(x?: number, y?: number): void {
     this.chainCount += 1;
-    const milestone = MAGNITUDE_MILESTONES.includes(this.chainCount);
+    const pearls = this.getBasePearlCount();
+    const milestone = magnitudeMilestones(pearls).includes(this.chainCount);
     this.chainPopScale = milestone ? 1.72 : Math.max(this.chainPopScale, 1.18);
     this.comboFlash = Math.max(this.comboFlash, milestone ? 1 : 0.38);
     if (this.chainCount > this.longestChainInRun) {
@@ -2060,13 +2061,13 @@ export class KintsugiCanvasEngine {
 
     if (milestone) {
       this.comboFlash = 0.42;
-      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= 21 ? 0.08 : 0.045);
+      this.hitStopTimer = Math.max(this.hitStopTimer, this.chainCount >= pearls * 4.5 ? 0.08 : 0.045);
       this.shakeTimer = Math.max(this.shakeTimer, 0.18);
-      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= 34 ? 6 : 3.5);
+      this.shakeAmp = Math.max(this.shakeAmp, this.chainCount >= pearls * 6 ? 6 : 3.5);
       this.veilAlpha = Math.max(this.veilAlpha, 0.12);
       this.veilColor = this.skin.gold;
       if (x != null && y != null) {
-        const mag = magnitudeOf(this.chainCount);
+        const mag = magnitudeOf(this.chainCount, pearls);
         this.ripples.push({
           x,
           y,
@@ -2085,7 +2086,7 @@ export class KintsugiCanvasEngine {
           alpha: 0.7,
           lineWidth: 1,
         });
-        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= 34 ? 16 : 13);
+        this.spawnWhisper(x, y - 18, mag.jp, this.skin.gold, this.chainCount >= pearls * 6 ? 16 : 13);
         for (let i = 0; i < 10; i++) {
           const ang = (i / 10) * Math.PI * 2;
           this.sparks.push({
@@ -2099,7 +2100,7 @@ export class KintsugiCanvasEngine {
           });
         }
       }
-      if (this.chainCount >= 21) sound.playKintsugiConvergence();
+      if (this.chainCount >= pearls * 4.5) sound.playKintsugiConvergence();
       else sound.playAstrolabeTwin();
     }
   }
@@ -3339,7 +3340,7 @@ export class KintsugiCanvasEngine {
 
   private drawComboAstrolabe(ctx: CanvasRenderingContext2D): void {
     if (this.phase !== 'FLIGHT' || this.chainCount < 1) return;
-    const mag = magnitudeOf(this.chainCount);
+    const mag = magnitudeOf(this.chainCount, this.getBasePearlCount());
     const flash = this.comboFlash;
     ctx.save();
     ctx.translate(TABLET_W * 0.5, 38);

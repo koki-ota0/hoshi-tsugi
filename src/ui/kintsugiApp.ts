@@ -401,7 +401,8 @@ export class KintsugiApp {
       if (hud.phase === 'FLIGHT') {
         const parts: string[] = [];
         if (hud.activePearlCount > 1) parts.push(`${hud.activePearlCount}星`);
-        if (hud.chainCount > 0) parts.push(`${hud.chainCount} · ${magnitudeOf(hud.chainCount).jp}`);
+        if (hud.chainCount > 0)
+          parts.push(`${hud.chainCount} · ${magnitudeOf(hud.chainCount, hud.basePearlCount).jp}`);
         chainEl.textContent = parts.join('  ');
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         chainEl.textContent =
@@ -578,7 +579,7 @@ export class KintsugiApp {
     result: { newNight: boolean; newChain: boolean; newFigure: boolean; rank: number; total: number; figureBest: number }
   ): void {
     const host = this.frame.querySelector('#ceremony-host') as HTMLElement;
-    const mag = magnitudeOf(info.chain);
+    const mag = magnitudeOf(info.chain, info.pearlCount);
     const plate = SEASON_PLATE[info.season as keyof typeof SEASON_PLATE];
     const stamps = [
       result.newNight ? '<span class="new-stamp">新図</span>' : '',
