@@ -16,8 +16,8 @@ import {
   isBossStage,
   isConstellationStage,
 } from './kintsugiData';
-import { MAGNITUDE_MILESTONES, magnitudeOf } from './constellations';
-import { SKIN, stageCaption, type CanvasSkin, type VisualTheme } from './visualTheme';
+import { MAGNITUDE_MILESTONES, atlasFigure, magnitudeOf } from './constellations';
+import { SKIN, type CanvasSkin, type VisualTheme } from './visualTheme';
 
 export const TABLET_W = 390;
 export const TABLET_H = 660;
@@ -721,7 +721,7 @@ export class KintsugiCanvasEngine {
       id: this.nextId++,
       form: arch.form,
       title: fig.title,
-      subtitle: fig.lucida,
+      subtitle: '',
       x: TABLET_W * 0.5,
       y: startY - 22,
       targetY: startY,
@@ -2449,7 +2449,7 @@ export class KintsugiCanvasEngine {
     this.cb.onStateChange({
       phase: this.phase,
       stage: this.stage,
-      stageLabel: this.currentBlueprint.latin,
+      stageLabel: `第${this.stage}図`,
       stageTitle: this.currentBlueprint.title,
       awakeningSeals: this.awakeningSeals,
       sealsNeeded: SEALS_PER_AWAKENING,
@@ -2597,19 +2597,17 @@ export class KintsugiCanvasEngine {
       ctx.beginPath();
       ctx.arc(0, 0, o.r, 0, Math.PI * 2);
       ctx.stroke();
-      if (true) {
-        ctx.beginPath();
-        ctx.moveTo(0, -o.r - 3);
-        ctx.lineTo(0, o.r + 3);
-        ctx.moveTo(-o.r - 3, 0);
-        ctx.lineTo(o.r + 3, 0);
-        ctx.stroke();
-      }
+      this.traceChartStar(ctx, 0, 0, o.r + 2.4, 4);
+      ctx.globalAlpha = 0.55;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.fillStyle = this.skin.orbText;
-      ctx.font = this.font('500', 10, false);
+      ctx.font = this.font('600', 13, false);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(false ? `+${o.bonus}` : `+${o.bonus}珠`, 0, 0.5);
+      ctx.fillText(`+${o.bonus}`, 0, 0.5);
+      ctx.font = this.font('400', 10, false);
+      ctx.fillText('珠', 0, o.r + 9);
       ctx.restore();
     }
 
@@ -2855,12 +2853,13 @@ export class KintsugiCanvasEngine {
     if (this.phase === 'CLEARED') {
       const pop = Math.min(1, 1.2 - this.transitionTimer * 0.35);
       ctx.save();
-      ctx.globalAlpha = 0.28 * Math.min(1, pop);
+      this.drawStageFigure(ctx, TABLET_W * 0.5, TABLET_H * 0.34, 240, 170, 0.55 + 0.4 * pop);
+      ctx.globalAlpha = 0.9 * Math.min(1, pop);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = this.skin.gold;
-      ctx.font = this.font('400', 88);
-      ctx.fillText('縫', TABLET_W * 0.5, TABLET_H * 0.36);
+      ctx.fillStyle = this.skin.ink;
+      ctx.font = this.font('400', 22);
+      ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, TABLET_H * 0.52);
       ctx.restore();
     }
 
@@ -2873,12 +2872,8 @@ export class KintsugiCanvasEngine {
       ctx.globalAlpha = Math.max(0, Math.min(0.96, a));
       ctx.textAlign = 'center';
       ctx.fillStyle = this.skin.gold;
-      ctx.font = this.font('400', 11, true);
-      ctx.fillText(
-        `${stageCaption(this.stage)}  ·  ${this.currentBlueprint.latin}`,
-        TABLET_W * 0.5,
-        470
-      );
+      ctx.font = this.font('400', 11, false);
+      ctx.fillText(`第${this.stage}図`, TABLET_W * 0.5, 470);
       ctx.fillStyle = this.skin.ink;
       ctx.font = this.font('400', 22);
       ctx.fillText(this.currentBlueprint.title, TABLET_W * 0.5, 498);
@@ -3328,6 +3323,45 @@ export class KintsugiCanvasEngine {
     ctx.closePath();
   }
 
+  private drawStageFigure(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+    alpha: number
+  ): void {
+    const fig = atlasFigure(this.stage);
+    if (fig.stars.length === 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx - w * 0.5, cy - h * 0.5);
+    ctx.strokeStyle = this.skin.gold;
+    ctx.fillStyle = this.skin.ink;
+    ctx.lineWidth = 1.15;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const pad = 10;
+    const iw = w - pad * 2;
+    const ih = h - pad * 2;
+    const px = (s: { x: number; y: number }) => pad + s.x * iw;
+    const py = (s: { x: number; y: number }) => pad + s.y * ih;
+    ctx.beginPath();
+    for (const [a, b] of fig.edges) {
+      const sa = fig.stars[a];
+      const sb = fig.stars[b];
+      if (!sa || !sb) continue;
+      ctx.moveTo(px(sa), py(sa));
+      ctx.lineTo(px(sb), py(sb));
+    }
+    ctx.stroke();
+    for (const s of fig.stars) {
+      this.traceChartStar(ctx, px(s), py(s), 4.4, 4);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   private drawComboAstrolabe(ctx: CanvasRenderingContext2D): void {
     if (this.phase !== 'FLIGHT' || this.chainCount < 1) return;
     const mag = magnitudeOf(this.chainCount);
@@ -3392,6 +3426,14 @@ export class KintsugiCanvasEngine {
     ctx.miterLimit = 2.4;
     ctx.stroke();
 
+    const starPts = v.isVermilion ? 4 : v.isArmored ? 8 : v.shape === 'DIAMOND' ? 4 : v.shape === 'HEXAGON' ? 6 : 5;
+    ctx.strokeStyle = ink;
+    ctx.globalAlpha = 0.32;
+    ctx.lineWidth = 0.8;
+    this.traceChartStar(ctx, 0, 0, r * 0.62, starPts);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
     const local = this.vesselLocalVerts(v.shape, r);
     const faces = v.shape === 'DISC' ? 0 : local.length;
     ctx.strokeStyle = ink;
@@ -3427,6 +3469,20 @@ export class KintsugiCanvasEngine {
       }
     }
     ctx.globalAlpha = 1;
+
+    ctx.fillStyle = ink;
+    if (v.shape === 'DISC') {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+        this.traceChartStar(ctx, Math.cos(a) * r, Math.sin(a) * r, 2.15, 4);
+        ctx.fill();
+      }
+    } else {
+      for (const p of local) {
+        this.traceChartStar(ctx, p.x, p.y, 2.2, 4);
+        ctx.fill();
+      }
+    }
 
     if (this.aimContact && this.aimContact.vesselId === v.id) {
       ctx.strokeStyle = s.gold;
@@ -3465,8 +3521,15 @@ export class KintsugiCanvasEngine {
       ctx.restore();
     }
 
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(0, 0, 9.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
     ctx.fillStyle = ink;
-    ctx.font = this.font('600', 16, true);
+    ctx.font = this.font('600', 15, false);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${v.hp}`, 0, 0.5);

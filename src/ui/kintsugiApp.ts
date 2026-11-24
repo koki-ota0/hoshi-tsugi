@@ -21,8 +21,8 @@ import {
   saveRun,
   SEASON_PLATE,
 } from '../game/kintsugiData';
-import { magnitudeOf } from '../game/constellations';
-import { stageCaption, toRoman } from '../game/visualTheme';
+import { atlasFigure, magnitudeOf } from '../game/constellations';
+import { stageCaption } from '../game/visualTheme';
 
 const RANK_MARKS = ['', '1', '2', '3', '4', '5'];
 
@@ -86,7 +86,7 @@ export class KintsugiApp {
         <div class="guardian-strip" id="guardian-strip">
           <div class="guardian-strip-row">
             <span id="guardian-name">オリオン</span>
-            <span id="guardian-sub" style="color:var(--cinnabar);font-size:11px;">Rigel</span>
+            <span id="guardian-sub" style="color:var(--cinnabar);font-size:11px;"></span>
           </div>
           <div class="guardian-hairline">
             <div class="guardian-hairline-fill" id="guardian-fill" style="width:100%;"></div>
@@ -178,6 +178,37 @@ export class KintsugiApp {
     return stageCaption(stage);
   }
 
+  private starPoly(x: number, y: number, r: number): string {
+    const pts: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 4;
+      const rad = i % 2 === 0 ? r : r * 0.38;
+      pts.push(`${(x + Math.cos(a) * rad).toFixed(1)},${(y + Math.sin(a) * rad).toFixed(1)}`);
+    }
+    return pts.join(' ');
+  }
+
+  private figureSvg(stage: number, w: number, h: number, cls = 'night-glyph'): string {
+    const fig = atlasFigure(stage);
+    const pad = 8;
+    const iw = w - pad * 2;
+    const ih = h - pad * 2;
+    const x = (s: { x: number; y: number }) => pad + s.x * iw;
+    const y = (s: { x: number; y: number }) => pad + s.y * ih;
+    const lines = fig.edges
+      .map(([a, b]) => {
+        const p = fig.stars[a];
+        const q = fig.stars[b];
+        if (!p || !q) return '';
+        return `<line x1="${x(p).toFixed(1)}" y1="${y(p).toFixed(1)}" x2="${x(q).toFixed(1)}" y2="${y(q).toFixed(1)}" />`;
+      })
+      .join('');
+    const dots = fig.stars
+      .map((s) => `<polygon points="${this.starPoly(x(s), y(s), 3.1)}" />`)
+      .join('');
+    return `<svg class="${cls}" viewBox="0 0 ${w} ${h}" aria-hidden="true">${lines}${dots}</svg>`;
+  }
+
   private goHome(saveIfPlaying: boolean): void {
     this.clearCeremonyModal();
     if (saveIfPlaying && this.playing && this.engine.phase !== 'SHATTERED' && this.engine.phase !== 'PROLOGUE') {
@@ -240,8 +271,8 @@ export class KintsugiApp {
     const actKanji = this.frame.querySelector('#hud-act-kanji');
     const actSub = this.frame.querySelector('#hud-act-sub');
     const awakeDots = this.frame.querySelector('#hud-awake-dots') as HTMLElement | null;
-    if (actKanji) actKanji.textContent = atShop ? 'HOSHITSUGI' : hud.stageLabel;
-    if (actSub) actSub.textContent = atShop ? '' : hud.stageTitle;
+    if (actKanji) actKanji.textContent = atShop ? '星継' : hud.stageTitle;
+    if (actSub) actSub.textContent = atShop ? '星図' : hud.stageLabel;
 
     if (awakeDots) {
       if (atShop || hud.guardianTitle) {
@@ -296,10 +327,7 @@ export class KintsugiApp {
         if (gSub) {
           const turns = hud.guardianTurnsLeft;
           if (turns !== null) {
-            gSub.textContent =
-              turns <= 2
-                ? `地平まで あと${turns}手`
-                : `${hud.guardianSubtitle ?? ''}  ·  あと${turns}手`;
+            gSub.textContent = turns <= 2 ? `地平まで あと${turns}手` : `あと${turns}手`;
             gSub.style.color = turns <= 2 ? '#ff8a7a' : 'var(--lamp)';
           } else if (hud.guardianSubtitle) {
             gSub.textContent = hud.guardianSubtitle;
@@ -401,22 +429,20 @@ export class KintsugiApp {
   private renderHome(): void {
     const recLine =
       this.record.highestCleared > 0
-        ? `${this.cap(this.record.highestCleared)}  ·  ${this.record.longestResonance}`
-        : 'TABULA I';
+        ? `${this.cap(this.record.highestCleared)}まで  ·  最長 ${this.record.longestResonance}`
+        : 'まだ図がない';
     const last = this.record.highestCleared > 0 ? getStageBlueprint(this.record.highestCleared) : null;
     const cont = this.run
-      ? `<button class="home-link dim" id="btn-continue" data-testid="btn-continue">つづき　${constellationForStage(this.run.stage).title}</button>`
+      ? `<button class="home-link dim" id="btn-continue" data-testid="btn-continue">つづき　${getStageBlueprint(this.run.stage).title}</button>`
       : '';
 
     this.renderMenuHost(`
       <div class="prologue-veil" data-testid="prologue-veil">
         <div class="home-main">
-          <div class="atlas-plate">URANOMETRIA</div>
           <div class="atlas-title">星継</div>
-          <div class="atlas-latin">HOSHITSUGI</div>
           <div class="atlas-rule"></div>
           <div class="atlas-blurb">落ちた星を金で縫い、<br>図に還す。</div>
-          <div class="atlas-record">${recLine}${last ? `  ·  ${last.latin}` : ''}</div>
+          <div class="atlas-record">${recLine}${last ? `　${last.title}` : ''}</div>
         </div>
         <div class="home-actions">
           <button class="prologue-trigger-btn" id="btn-open-curtain" data-testid="btn-open-curtain">はじめる</button>
@@ -453,9 +479,7 @@ export class KintsugiApp {
       if (plate !== lastPlate) {
         lastPlate = plate;
         const season = SEASON_PLATE[bp.season];
-        blocks.push(
-          `<div class="atlas-season">${season.la}<em>${season.jp} · TABULA ${toRoman(plate + 1)}</em></div>`
-        );
+        blocks.push(`<div class="atlas-season">${season.jp}</div>`);
       }
       const open = isNightUnlocked(n, this.record);
       const grand = isGrandBossStage(n);
@@ -471,10 +495,11 @@ export class KintsugiApp {
       ]
         .filter(Boolean)
         .join(' ');
-      const kicker = grand ? '大ボス' : mid ? '中ボス' : open ? bp.latin : 'incognita';
+      const kicker = grand ? '大ボス' : mid ? '中ボス' : bp.archetype === 'CONSTELLATION' ? '星座' : '';
       blocks.push(`
         <button class="${cls}" data-night="${n}" ${open ? '' : 'disabled'} data-testid="night-${n}">
-          <em>NOX ${toRoman(n)}</em>
+          ${cleared ? this.figureSvg(n, 140, 78) : '<span class="night-glyph-empty"></span>'}
+          <em>${this.cap(n)}</em>
           <strong>${open ? bp.title : '—'}</strong>
           <span>${kicker}</span>
           ${best ? `<b>${best}</b>` : ''}
@@ -511,7 +536,7 @@ export class KintsugiApp {
         (e, i) => `
         <div class="rank-row">
           <span class="rank-i">${String(i + 1).padStart(2, '0')}</span>
-          <span class="rank-name">${e.title}<em>${e.latin}</em></span>
+          <span class="rank-name">${e.title}</span>
           <strong>${e.chain}</strong>
         </div>`
       )
@@ -563,15 +588,15 @@ export class KintsugiApp {
     host.innerHTML = `
       <div class="clear-toast" id="clear-toast" data-testid="clear-toast">
         <div class="clear-card atlas-clear">
-          <div class="clear-kicker">${this.cap(info.stage)}  ·  ${plate ? plate.la : ''}</div>
-          <div class="clear-latin">${info.latin}</div>
+          <div class="clear-kicker">${this.cap(info.stage)}${plate ? `  ·  ${plate.jp}` : ''}</div>
           <div class="clear-title">${info.title}</div>
-          <div class="clear-lucida">${info.isBoss ? '核を割った' : info.lucida}</div>
+          ${this.figureSvg(info.stage, 220, 120, 'clear-glyph')}
+          <div class="clear-lucida">${info.isBoss ? '核を割った' : '縫った'}</div>
           <div class="clear-stamps">${stamps}</div>
           <div class="clear-metrics">
-            <div>等級<em>${mag.la}</em><strong>${mag.jp}</strong></div>
-            <div>結星<em>CHAIN</em><strong>${info.chain}</strong></div>
-            <div>星<em>+1</em><strong>×${info.pearlCount}</strong></div>
+            <div>等級<strong>${mag.jp}</strong></div>
+            <div>結星<strong>${info.chain}</strong></div>
+            <div>星<strong>×${info.pearlCount}</strong></div>
           </div>
           <div class="clear-metrics slim">
             <div>この星座の最高<strong>${result.figureBest}</strong></div>
@@ -616,8 +641,8 @@ export class KintsugiApp {
     const bossBonus = isBossStage(stageCleared);
     const fig = constellationForStage(stageCleared);
     const kicker = bossBonus
-      ? `${fig.latin} の核を割った`
-      : `${fig.title} を縫った`;
+      ? `${fig.title}の核を割った`
+      : `${fig.title}を縫った`;
     const host = this.frame.querySelector('#ceremony-host') as HTMLElement;
     host.innerHTML = `
       <div class="ceremony-modal" data-testid="interlude-modal">
