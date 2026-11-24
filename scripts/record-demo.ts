@@ -450,16 +450,16 @@ Playfield captures of 星継 for later SNS edit. Source is the live engine (atla
 | 05-grand-orion.webp | 正面・大ボス オリオン |
 | 06-square-playfield.webp | 正方形クロップ（フィード） |
 | 07-close-cradle.webp | 寄り・地平の弦／放つ手元 |
-| 08-close-stars.webp | 寄り・星座の器 |
+| 08-close-stars.webp | 寄り・星座の星 |
 | 09-portrait-story.webp | 9:16 ストーリー余白 |
-| 10-chart-vessels.webp | 正面・星図の器（カタログ星） |
+| 10-chart-vessels.webp | 正面・星図の星 |
 | 11-combo-confirm.webp | 正面・コンボ確定（等級輪） |
-| 12-close-vessels.webp | 寄り・器の材質 |
+| 12-close-vessels.webp | 寄り・星の形 |
 | 13-close-combo.webp | 寄り・コンボ確定演出 |
 | 14-steps-terrace.webp | 正面・段丘（図譜と同じ 4-5-6） |
 | 15-wings-volley.webp | 正面・双翼を放つ |
 | 16-cluster-vermilion.webp | 正面・朱叢 |
-| 17-orbit-drift.webp | 正面・回廊（流れる器） |
+| 17-orbit-drift.webp | 正面・回廊（流れる星） |
 | 18-bastion-armor.webp | 正面・砦の装甲 |
 | 19-constellation-field.webp | 正面・星座と周囲の障害 |
 | 20-close-steps.webp | 寄り・段丘の段 |

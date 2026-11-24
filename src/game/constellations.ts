@@ -51,9 +51,9 @@ export const GEOMETRY_PLATES: Record<GeometryKind, { title: string; latin: strin
   gate: { title: '門列', latin: 'PORTA', lore: '隙間を狙って、天井で返す' },
   wings: { title: '双翼', latin: 'ALAE', lore: '左右の翼を、交互に削る' },
   steps: { title: '段丘', latin: 'GRADUS', lore: '下段から、段を登るように' },
-  cluster: { title: '朱叢', latin: 'SPINA', lore: '朱の器は、割ると隣へ火が走る' },
+  cluster: { title: '朱叢', latin: 'SPINA', lore: '朱の星は、割ると隣へ火が走る' },
   shower: { title: '金雨', latin: 'IMBER', lore: 'もろい星は、連鎖で一気に' },
-  bastion: { title: '砦', latin: 'ARX', lore: '硬い器は、壁で裏へ回る' },
+  bastion: { title: '砦', latin: 'ARX', lore: '硬い星は、壁で裏へ回る' },
   orbit: { title: '回廊', latin: 'AMBITUS', lore: '動く隙間を見て、放つ' },
   triangle: { title: '三角', latin: 'TRIANGLA', lore: '頂点の硬い星を、最後に' },
   hex: { title: '六花', latin: 'HEXAGONUM', lore: '芯を残して、外輪を先に' },
@@ -113,23 +113,20 @@ interface Recipe {
 }
 
 function sparseField(): StarSpec[] {
-  const field: StarSpec[] = [];
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + 0.22;
-    const rad = 0.2 + (i % 2) * 0.17;
-    field.push({
-      x: 0.5 + Math.cos(a) * rad,
-      y: 0.48 + Math.sin(a) * rad * 0.92,
-      armored: i % 3 === 0,
-      vermilion: i % 5 === 2,
-      drift: i % 2 === 0 ? 16 * (i % 4 === 0 ? 1 : -1) : 0,
-    });
-  }
-  field.push({ x: 0.08, y: 0.12, armored: true, indestructible: true });
-  field.push({ x: 0.92, y: 0.12, armored: true, indestructible: true });
-  field.push({ x: 0.1, y: 0.86, vermilion: true });
-  field.push({ x: 0.9, y: 0.86 });
-  return field;
+  /** 星座の内側には置かない。縁の障害だけ。 */
+  return [
+    { x: 0.07, y: 0.1, armored: true, indestructible: true },
+    { x: 0.93, y: 0.1, armored: true, indestructible: true },
+    { x: 0.06, y: 0.38, drift: 18 },
+    { x: 0.94, y: 0.38, drift: -18 },
+    { x: 0.05, y: 0.62, armored: true },
+    { x: 0.95, y: 0.62 },
+    { x: 0.18, y: 0.9, vermilion: true },
+    { x: 0.5, y: 0.92 },
+    { x: 0.82, y: 0.9, vermilion: true },
+    { x: 0.07, y: 0.88, armored: true, indestructible: true },
+    { x: 0.93, y: 0.88, armored: true, indestructible: true },
+  ];
 }
 
 function bake(r: Recipe): { stars: StarSpec[]; edges: Array<[number, number]>; field?: StarSpec[] } {
@@ -432,7 +429,7 @@ const CATALOG: CatalogRow[] = [
     latin: 'URSA MAJOR',
     genitive: 'Ursae Majoris',
     season: 'spring',
-    lore: '北を指す七つの器。柄から碗へ縫え',
+    lore: '北を指す七つの星。柄から斗へ縫え',
     lucida: 'Alioth',
     recipe: { k: 'dipper' },
   },

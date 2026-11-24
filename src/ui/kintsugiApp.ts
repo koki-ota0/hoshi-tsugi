@@ -376,7 +376,7 @@ export class KintsugiApp {
         guideEl.textContent = '縫った';
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         seal.classList.remove('ready');
-        guideEl.textContent = '金線を引き、放つ';
+        guideEl.textContent = '星へ線を引き、放つ';
       } else if (hud.phase === 'FLIGHT') {
         if (!hud.hasSlashAbility) {
           seal.classList.remove('ready');
