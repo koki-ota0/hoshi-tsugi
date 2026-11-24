@@ -245,12 +245,15 @@ export function constellationClearsBefore(stage: number): number {
   return Math.max(0, Math.floor((Math.max(1, stage) - 1) / 3));
 }
 
+/** 珠の基礎ダメージ。耐久と同じく指数で伸び、撃破手数はほぼ一定。 */
+export function stagePearlDamage(stage: number): number {
+  const t = Math.max(0, stage - 1);
+  return Math.max(1, Math.floor(Math.pow(1.22, t) + 0.2));
+}
+
 export function stageBaseHp(stage: number): number {
-  if (stage <= 1) return 4;
-  if (stage === 2) return 5;
-  if (stage === 3) return 7;
-  const t = stage - 3;
-  return Math.round(7 + t * 1.05 + Math.pow(t, 1.12) * 0.42);
+  const t = Math.max(0, stage - 1);
+  return Math.max(4, Math.round(4 * Math.pow(1.23, t)));
 }
 
 export function getStageBlueprint(stage: number): StageBlueprint {

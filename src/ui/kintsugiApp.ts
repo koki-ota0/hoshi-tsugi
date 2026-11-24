@@ -376,7 +376,7 @@ export class KintsugiApp {
         guideEl.textContent = '縫った';
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
         seal.classList.remove('ready');
-        guideEl.textContent = '金線を引き、放つ';
+        guideEl.textContent = '星へ線を引き、放つ';
       } else if (hud.phase === 'FLIGHT') {
         if (!hud.hasSlashAbility) {
           seal.classList.remove('ready');
@@ -404,17 +404,15 @@ export class KintsugiApp {
         if (hud.chainCount > 0) parts.push(`${hud.chainCount} · ${magnitudeOf(hud.chainCount).jp}`);
         chainEl.textContent = parts.join('  ');
       } else if (hud.phase === 'AIMING' || hud.phase === 'TRANSITION') {
-        chainEl.textContent = `×${hud.basePearlCount}`;
+        chainEl.textContent =
+          hud.pearlDamage > 1 ? `×${hud.basePearlCount}　${hud.pearlDamage}` : `×${hud.basePearlCount}`;
       } else {
         chainEl.textContent = '';
       }
     }
 
-    if (hud.phase !== 'CLEARED') {
-      const toast = this.frame.querySelector('#clear-toast');
-      if (toast && hud.phase !== 'INTERLUDE') {
-        toast.remove();
-      }
+    if (hud.phase !== 'CLEARED' && hud.phase !== 'INTERLUDE' && hud.phase !== 'SHATTERED') {
+      this.clearCeremonyModal();
     }
   }
 
@@ -623,6 +621,7 @@ export class KintsugiApp {
     `;
 
     host.querySelector('#clear-toast')?.addEventListener('click', () => {
+      this.clearCeremonyModal();
       this.engine.skipClearHold();
     });
   }
