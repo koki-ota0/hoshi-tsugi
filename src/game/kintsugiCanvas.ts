@@ -683,11 +683,37 @@ export class KintsugiCanvasEngine {
         p.x,
         p.y,
         Math.max(3, Math.round(bp.baseHp * 0.7)),
-        extra.vermilion ? 'DIAMOND' : 'DISC',
+        extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'DISC',
         Boolean(extra.vermilion),
         Boolean(extra.armored),
         extra.drift ?? 0
       );
+    }
+
+    if (this.vessels.length < 8) {
+      const extras: Array<{ x: number; y: number; armored?: boolean; vermilion?: boolean; drift?: number }> = [
+        { x: 0.12, y: 0.18, armored: true },
+        { x: 0.88, y: 0.18, armored: true },
+        { x: 0.08, y: 0.52, drift: 20 },
+        { x: 0.92, y: 0.52, drift: -20 },
+        { x: 0.22, y: 0.84, vermilion: true },
+        { x: 0.78, y: 0.84 },
+        { x: 0.5, y: 0.72 },
+      ];
+      for (const extra of extras) {
+        if (this.vessels.length >= 11) break;
+        const p = this.mapStar(extra.x, extra.y);
+        if (this.vessels.some((v) => Math.hypot(v.x - p.x, v.y - p.y) < 36)) continue;
+        this.addVessel(
+          p.x,
+          p.y,
+          Math.max(3, Math.round(bp.baseHp * (extra.armored ? 1.1 : 0.65))),
+          extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'HEXAGON',
+          Boolean(extra.vermilion),
+          Boolean(extra.armored),
+          extra.drift ?? 0
+        );
+      }
     }
 
     this.addOrb(TABLET_W * 0.18, 300, 1);
@@ -959,7 +985,7 @@ export class KintsugiCanvasEngine {
       x,
       y: targetY - 16,
       targetY,
-      r: 11.5,
+      r: 13,
       bonus,
       phase: Math.random() * Math.PI * 2,
     });
@@ -2593,21 +2619,15 @@ export class KintsugiCanvasEngine {
         ctx.fill();
       }
       ctx.strokeStyle = this.skin.orbStroke;
-      ctx.lineWidth = false ? 1 : 1.4;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(0, 0, o.r, 0, Math.PI * 2);
       ctx.stroke();
-      this.traceChartStar(ctx, 0, 0, o.r + 2.4, 4);
-      ctx.globalAlpha = 0.55;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
       ctx.fillStyle = this.skin.orbText;
-      ctx.font = this.font('600', 13, false);
+      ctx.font = this.font('600', 16, false);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`+${o.bonus}`, 0, 0.5);
-      ctx.font = this.font('400', 10, false);
-      ctx.fillText('珠', 0, o.r + 9);
       ctx.restore();
     }
 
