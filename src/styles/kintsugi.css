@@ -828,7 +828,8 @@ body {
   z-index: 28;
   pointer-events: none;
 }
-#ceremony-host:not(:empty) {
+#ceremony-host:has(.clear-toast),
+#ceremony-host:has(.ceremony-modal) {
   pointer-events: auto;
 }
 

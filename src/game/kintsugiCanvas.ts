@@ -15,6 +15,7 @@ import {
   isAwakeningStage,
   isBossStage,
   isConstellationStage,
+  stagePearlDamage,
 } from './kintsugiData';
 import {
   MAGNITUDE_MILESTONES,
@@ -56,6 +57,7 @@ export interface PorcelainVessel {
   scalePop: number;
   cracks: CrackBranch[];
   isObstacle?: boolean;
+  indestructible?: boolean;
 }
 
 export interface PearlOrb {
@@ -227,6 +229,7 @@ export interface KintsugiHudState {
   chainCount: number;
   activePearlCount: number;
   basePearlCount: number;
+  pearlDamage: number;
   guardianTitle: string | null;
   guardianSubtitle: string | null;
   guardianRatio: number;
@@ -522,7 +525,7 @@ export class KintsugiCanvasEngine {
   }
 
   public skipClearHold(): void {
-    if (this.phase === 'CLEARED' && this.transitionTimer < this.clearHoldMax - 0.85) {
+    if (this.phase === 'CLEARED') {
       this.transitionTimer = 0;
     }
   }
@@ -555,10 +558,9 @@ export class KintsugiCanvasEngine {
   }
 
   public getCurrentPearlDamage(): number {
-    if (this.ranks.bounce_split >= 5 && this.chainCount >= 80) {
-      return 2;
-    }
-    return 1;
+    let dmg = stagePearlDamage(this.stage);
+    if (this.ranks.bounce_split >= 5 && this.chainCount >= 80) dmg *= 2;
+    return dmg;
   }
 
   private getMaxStringBounces(): number {
@@ -687,22 +689,30 @@ export class KintsugiCanvasEngine {
 
     for (const extra of fig.field ?? []) {
       const p = this.mapStar(extra.x, extra.y);
-      this.addVessel(
-        p.x,
-        p.y,
-        Math.max(3, Math.round(bp.baseHp * 0.7)),
-        extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'DISC',
-        Boolean(extra.vermilion),
-        Boolean(extra.armored),
-        extra.drift ?? 0,
-        true
-      );
+        this.addVessel(
+          p.x,
+          p.y,
+          Math.max(3, Math.round(bp.baseHp * 0.7)),
+          extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'DISC',
+          Boolean(extra.vermilion),
+          Boolean(extra.armored),
+          extra.drift ?? 0,
+          true,
+          Boolean(extra.indestructible)
+        );
     }
 
     if (this.vessels.length < 8) {
-      const extras: Array<{ x: number; y: number; armored?: boolean; vermilion?: boolean; drift?: number }> = [
-        { x: 0.12, y: 0.18, armored: true },
-        { x: 0.88, y: 0.18, armored: true },
+      const extras: Array<{
+        x: number;
+        y: number;
+        armored?: boolean;
+        vermilion?: boolean;
+        drift?: number;
+        indestructible?: boolean;
+      }> = [
+        { x: 0.12, y: 0.18, armored: true, indestructible: true },
+        { x: 0.88, y: 0.18, armored: true, indestructible: true },
         { x: 0.08, y: 0.52, drift: 20 },
         { x: 0.92, y: 0.52, drift: -20 },
         { x: 0.22, y: 0.84, vermilion: true },
@@ -710,7 +720,7 @@ export class KintsugiCanvasEngine {
         { x: 0.5, y: 0.72 },
       ];
       for (const extra of extras) {
-        if (this.vessels.length >= 11) break;
+        if (this.breakableCount() >= 11 && !extra.indestructible) break;
         const p = this.mapStar(extra.x, extra.y);
         if (this.vessels.some((v) => Math.hypot(v.x - p.x, v.y - p.y) < 36)) continue;
         this.addVessel(
@@ -721,7 +731,8 @@ export class KintsugiCanvasEngine {
           Boolean(extra.vermilion),
           Boolean(extra.armored),
           extra.drift ?? 0,
-          true
+          true,
+          Boolean(extra.indestructible)
         );
       }
     }
@@ -840,6 +851,16 @@ export class KintsugiCanvasEngine {
       .edges.filter(([a, b]) => ids[a] && ids[b])
       .map(([a, b]) => [ids[a], ids[b]]);
 
+    this.addSealStone(0.06, 0.3);
+    this.addSealStone(0.94, 0.3);
+    if (bp.stage >= 5) {
+      this.addSealStone(0.06, 0.62);
+      this.addSealStone(0.94, 0.62);
+    }
+    if (bp.stage >= 11) {
+      this.addSealStone(0.5, 0.08);
+    }
+
     this.addOrb(TABLET_W * 0.18, 310, 1);
     if (bp.stage >= 2) this.addOrb(TABLET_W * 0.82, 278, 1);
   }
@@ -859,18 +880,21 @@ export class KintsugiCanvasEngine {
     isVermilion: boolean,
     isArmored: boolean,
     vx: number,
-    isObstacle = false
+    isObstacle = false,
+    indestructible = false
   ): void {
-    const finalHp = Math.max(3, hp);
-    const radius = isArmored ? 21 : isObstacle ? 16.2 : 18.5;
+    const sealed = Boolean(indestructible);
+    const finalHp = sealed ? 999 : Math.max(3, hp);
+    const radius = sealed ? 17.2 : isArmored ? 21 : isObstacle ? 16.2 : 18.5;
     this.vessels.push({
       id: this.nextId++,
-      shape,
-      isVermilion,
-      isArmored,
+      shape: sealed ? 'OCTAGON' : shape,
+      isVermilion: sealed ? false : isVermilion,
+      isArmored: sealed ? true : isArmored,
+      anchored: sealed,
       x,
       y: targetY - 22,
-      vx,
+      vx: sealed ? 0 : vx,
       targetY,
       radius,
       hp: finalHp,
@@ -878,8 +902,19 @@ export class KintsugiCanvasEngine {
       hitFlash: 0,
       scalePop: 1,
       cracks: this.generateKintsugiCracks(radius),
-      isObstacle,
+      isObstacle: sealed || isObstacle,
+      indestructible: sealed,
     });
+  }
+
+  private addSealStone(nx: number, ny: number): void {
+    const p = this.mapStar(nx, ny);
+    if (this.vessels.some((v) => Math.hypot(v.x - p.x, v.y - p.y) < 40)) return;
+    this.addVessel(p.x, p.y, 999, 'OCTAGON', false, true, 0, true, true);
+  }
+
+  private breakableCount(): number {
+    return this.vessels.filter((v) => !v.indestructible).length;
   }
 
   private addOrb(x: number, targetY: number, bonus: number): void {
@@ -1406,7 +1441,7 @@ export class KintsugiCanvasEngine {
         s.dmgTickTimer -= dt;
         if (s.dmgTickTimer <= 0) {
           s.dmgTickTimer = 0.14;
-          const seamDmg = this.ranks.kintsugi_slash >= 5 ? 2 : 1;
+          const seamDmg = (this.ranks.kintsugi_slash >= 5 ? 2 : 1) * this.getCurrentPearlDamage();
           const snapVessels = [...this.vessels];
           for (const v of snapVessels) {
             if (!v || v.hp <= 0) continue;
@@ -1464,7 +1499,7 @@ export class KintsugiCanvasEngine {
       this.bonusPearlsBuffer.length = 0;
     }
 
-    if (this.vessels.length === 0 && !this.guardian) {
+    if (this.breakableCount() === 0 && !this.guardian) {
       for (const o of this.orbs) {
         this.collectedOrbPearls += o.bonus;
       }
@@ -1626,6 +1661,12 @@ export class KintsugiCanvasEngine {
         if (!v || v.hp <= 0) continue;
         const hit = this.vesselContact(p.x, p.y, p.r, v);
         if (hit) {
+          if (v.indestructible) {
+            this.bounceOffNormal(p, hit.nx, hit.ny, hit.qx, hit.qy);
+            v.hitFlash = 0.55;
+            this.spawnImpactSparks(p.x, p.y, false);
+            break;
+          }
           const hitDmg = baseDmg + p.bonusNextHit;
           p.bonusNextHit = 0;
           const willKill = v.hp <= hitDmg;
@@ -1791,7 +1832,7 @@ export class KintsugiCanvasEngine {
     this.lightningHitCounter = 0;
 
     const maxTargets = [0, 1, 1, 2, 3, 4][Math.min(5, rank)];
-    const boltDmg = [0, 2, 4, 4, 6, 9][Math.min(5, rank)];
+    const boltDmg = ([0, 2, 4, 4, 6, 9][Math.min(5, rank)] ?? 0) * Math.max(1, Math.round(this.getCurrentPearlDamage() * 0.5));
 
     const candidates = this.vessels
       .filter((v) => v.hp > 0 && v.id !== excludeId)
@@ -1835,7 +1876,7 @@ export class KintsugiCanvasEngine {
   }
 
   private strikeVessel(v: PorcelainVessel, dmg: number, isVermilionAccent: boolean): void {
-    if (!v || v.hp <= 0) return;
+    if (!v || v.hp <= 0 || v.indestructible) return;
 
     v.hp -= dmg;
     v.hitFlash = 1;
@@ -1869,14 +1910,14 @@ export class KintsugiCanvasEngine {
 
       if (wasVermilion) {
         this.hitStopTimer = Math.max(this.hitStopTimer, 0.016);
-        const waveDmg = Math.max(2, Math.round(2 + this.stage * 0.28));
+        const waveDmg = Math.max(2, Math.round(this.getCurrentPearlDamage() * 2));
         this.unleashKintsugiWave(vx, vy, 58, waveDmg, this.skin.vermilion);
       } else if (this.ranks.chain_burst > 0) {
         const cbRank = this.ranks.chain_burst;
         if (cbRank >= 4) {
           this.spawnEphemeralBurstPearls(vx, vy, cbRank >= 5 ? 2 : 1);
         }
-        const echoDmg = [0, 1, 2, 4, 6, 9][Math.min(5, cbRank)];
+        const echoDmg = ([0, 1, 2, 4, 6, 9][Math.min(5, cbRank)] ?? 0) * Math.max(1, Math.round(this.getCurrentPearlDamage() * 0.45));
         const echoR = cbRank >= 3 ? 86 : 70;
         this.unleashKintsugiWave(vx, vy, echoR, echoDmg, this.skin.gold);
       }
@@ -1911,7 +1952,7 @@ export class KintsugiCanvasEngine {
 
     const targets = [...this.vessels];
     for (const other of targets) {
-      if (!other || other.hp <= 0) continue;
+      if (!other || other.hp <= 0 || other.indestructible) continue;
       if (Math.hypot(other.x - cx, other.y - cy) <= radius + other.radius * 0.5) {
         this.strikeVessel(other, dmg, false);
       }
@@ -2152,7 +2193,7 @@ export class KintsugiCanvasEngine {
       }
     }
 
-    if (this.vessels.length === 0 && !this.guardian) {
+    if (this.breakableCount() === 0 && !this.guardian) {
       this.concludeStageCleared();
       return;
     }
@@ -2391,6 +2432,7 @@ export class KintsugiCanvasEngine {
       chainCount: this.chainCount,
       activePearlCount: this.pearls.length + this.launchQueue,
       basePearlCount: this.getBasePearlCount(),
+      pearlDamage: this.getCurrentPearlDamage(),
       guardianTitle: this.guardian ? this.guardian.title : null,
       guardianSubtitle: this.guardian ? this.guardian.subtitle : null,
       guardianRatio: this.guardian ? Math.max(0, this.guardian.hp / this.guardian.maxHp) : 0,
@@ -3337,20 +3379,23 @@ export class KintsugiCanvasEngine {
     const s = this.skin;
     const hit = v.hitFlash;
     const obstacle = Boolean(v.isObstacle);
-    const ink = v.isVermilion ? s.vermilion : v.isArmored ? s.gold : s.ink;
+    const sealed = Boolean(v.indestructible);
+    const ink = sealed ? '#3a3428' : v.isVermilion ? s.vermilion : v.isArmored ? s.gold : s.ink;
     const fill = hit > 0.22
       ? s.vesselHitHi
-      : obstacle
-        ? v.isVermilion
-          ? '#d9b8a8'
-          : v.isArmored
-            ? '#b7a888'
-            : '#c8bba3'
-        : v.isVermilion
-          ? '#f3e2d6'
-          : v.isArmored
-            ? s.vesselArmorHi
-            : '#f7f1e3';
+      : sealed
+        ? '#8d8168'
+        : obstacle
+          ? v.isVermilion
+            ? '#d9b8a8'
+            : v.isArmored
+              ? '#b7a888'
+              : '#c8bba3'
+          : v.isVermilion
+            ? '#f3e2d6'
+            : v.isArmored
+              ? s.vesselArmorHi
+              : '#f7f1e3';
 
     this.traceVesselPath(ctx, v.shape, r);
     ctx.fillStyle = fill;
@@ -3493,16 +3538,22 @@ export class KintsugiCanvasEngine {
 
     ctx.fillStyle = fill;
     ctx.beginPath();
-    ctx.arc(0, 0, 9.2, 0, Math.PI * 2);
+    ctx.arc(0, 0, sealed ? 10.4 : 9.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = ink;
-    ctx.lineWidth = 0.7;
+    ctx.lineWidth = sealed ? 1.35 : 0.7;
     ctx.stroke();
     ctx.fillStyle = ink;
-    ctx.font = this.font('600', 15, false);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${v.hp}`, 0, 0.5);
+    if (sealed) {
+      ctx.font = this.font('600', 13, false);
+      ctx.fillText('封', 0, 0.5);
+    } else {
+      const n = `${v.hp}`;
+      ctx.font = this.font('600', n.length >= 3 ? 11 : n.length >= 2 ? 13 : 15, false);
+      ctx.fillText(n, 0, 0.5);
+    }
 
     ctx.restore();
   }

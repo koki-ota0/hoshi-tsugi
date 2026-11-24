@@ -6,6 +6,7 @@ export interface StarSpec {
   vermilion?: boolean;
   armored?: boolean;
   drift?: number;
+  indestructible?: boolean;
 }
 
 export interface ConstellationDef {
@@ -124,8 +125,8 @@ function sparseField(): StarSpec[] {
       drift: i % 2 === 0 ? 16 * (i % 4 === 0 ? 1 : -1) : 0,
     });
   }
-  field.push({ x: 0.08, y: 0.12, armored: true });
-  field.push({ x: 0.92, y: 0.12, armored: true });
+  field.push({ x: 0.08, y: 0.12, armored: true, indestructible: true });
+  field.push({ x: 0.92, y: 0.12, armored: true, indestructible: true });
   field.push({ x: 0.1, y: 0.86, vermilion: true });
   field.push({ x: 0.9, y: 0.86 });
   return field;
