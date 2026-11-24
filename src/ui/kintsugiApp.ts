@@ -148,6 +148,13 @@ export class KintsugiApp {
       onRunPersist: (snap) => {
         this.run = snap;
         saveRun(snap);
+        const nextClear = Math.max(this.record.peakClearPearls, snap.stageClearBonusPearls);
+        const nextOrbs = Math.max(this.record.peakOrbPearls, snap.collectedOrbPearls);
+        if (nextClear !== this.record.peakClearPearls || nextOrbs !== this.record.peakOrbPearls) {
+          this.record.peakClearPearls = nextClear;
+          this.record.peakOrbPearls = nextOrbs;
+          saveRecord(this.record);
+        }
       },
       onAwakeningReady: (stageCleared, maxChain) => {
         this.lastClearedStage = stageCleared;
@@ -233,7 +240,10 @@ export class KintsugiApp {
     this.record.runsPlayed += 1;
     saveRecord(this.record);
     this.playing = true;
-    this.engine.beginRun(startStage, false);
+    this.engine.beginRun(startStage, false, {
+      clear: this.record.peakClearPearls,
+      orbs: this.record.peakOrbPearls,
+    });
   }
 
   private continueRun(): void {
@@ -741,7 +751,10 @@ export class KintsugiApp {
       this.record.runsPlayed += 1;
       saveRecord(this.record);
       this.playing = true;
-      this.engine.beginRun(1, false);
+      this.engine.beginRun(1, false, {
+        clear: this.record.peakClearPearls,
+        orbs: this.record.peakOrbPearls,
+      });
     });
     host.querySelector('#btn-broken-home')?.addEventListener('click', () => {
       this.clearCeremonyModal();

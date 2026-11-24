@@ -245,14 +245,21 @@ export function constellationClearsBefore(stage: number): number {
   return Math.max(0, Math.floor((Math.max(1, stage) - 1) / 3));
 }
 
-/** 傷はゆっくり段で上がる。耐久は傷に追従し、一発では盤が空かない。 */
+/** 傷はゆっくり段で上がる。耐久は傷と、その図で想定する珠の数に追従する。 */
 export function stagePearlDamage(stage: number): number {
   if (stage <= 4) return 1;
   return 1 + Math.floor((stage - 2) / 3);
 }
 
+export function expectedPearlCount(stage: number): number {
+  return 6 + constellationClearsBefore(stage);
+}
+
 export function stageBaseHp(stage: number): number {
-  return stagePearlDamage(stage) * (8 + Math.ceil(stage / 2));
+  const dmg = stagePearlDamage(stage);
+  const shots = 8 + Math.ceil(stage / 2);
+  const volley = expectedPearlCount(stage) / 6;
+  return Math.round(dmg * shots * volley);
 }
 
 export function getStageBlueprint(stage: number): StageBlueprint {
@@ -332,6 +339,8 @@ export interface KintsugiRecord {
   theme: VisualTheme;
   bestChainByStage: Record<string, number>;
   ledger: LedgerEntry[];
+  peakClearPearls: number;
+  peakOrbPearls: number;
 }
 
 export interface RunSnapshot {
@@ -388,6 +397,8 @@ export function emptyRecord(): KintsugiRecord {
     theme: 'atlas',
     bestChainByStage: {},
     ledger: [],
+    peakClearPearls: 0,
+    peakOrbPearls: 0,
   };
 }
 
@@ -409,6 +420,8 @@ export function loadRecord(): KintsugiRecord {
         theme: 'atlas',
         bestChainByStage: parsed.bestChainByStage ?? {},
         ledger: Array.isArray(parsed.ledger) ? parsed.ledger : [],
+        peakClearPearls: parsed.peakClearPearls ?? 0,
+        peakOrbPearls: parsed.peakOrbPearls ?? 0,
       };
     }
   } catch {

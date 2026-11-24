@@ -266,6 +266,8 @@ export class KintsugiCanvasEngine {
 
   public collectedOrbPearls = 0;
   public stageClearBonusPearls = 0;
+  private pearlFloorClear = 0;
+  private pearlFloorOrbs = 0;
   private pendingAwakening = false;
   private clearBurstTimer = 0;
 
@@ -475,14 +477,27 @@ export class KintsugiCanvasEngine {
     this.beginRun(1, fireImmediately);
   }
 
-  public beginRun(startStage = 1, fireImmediately = false): void {
+  public beginRun(
+    startStage = 1,
+    fireImmediately = false,
+    pearlFloor?: { clear: number; orbs: number }
+  ): void {
     this.stage = Math.max(1, startStage);
     this.awakeningSeals = 0;
     this.integrity = 3;
     this.maxIntegrity = 3;
     this.longestChainInRun = 0;
-    this.collectedOrbPearls = 0;
-    this.stageClearBonusPearls = constellationClearsBefore(startStage);
+    if (pearlFloor) {
+      this.pearlFloorClear = Math.max(this.pearlFloorClear, pearlFloor.clear);
+      this.pearlFloorOrbs = Math.max(this.pearlFloorOrbs, pearlFloor.orbs);
+    }
+    this.stageClearBonusPearls = Math.max(
+      constellationClearsBefore(startStage),
+      this.pearlFloorClear
+    );
+    this.collectedOrbPearls = Math.max(0, this.pearlFloorOrbs);
+    this.pearlFloorClear = Math.max(this.pearlFloorClear, this.stageClearBonusPearls);
+    this.pearlFloorOrbs = Math.max(this.pearlFloorOrbs, this.collectedOrbPearls);
     this.pendingAwakening = false;
     this.fastForward = false;
     this.ranks = emptyRanks();
@@ -532,6 +547,7 @@ export class KintsugiCanvasEngine {
 
   private persistRun(): void {
     if (this.phase === 'PROLOGUE' || this.phase === 'SHATTERED') return;
+    this.bumpPearlFloor();
     this.cb.onRunPersist(this.exportRun());
   }
 
@@ -555,6 +571,11 @@ export class KintsugiCanvasEngine {
     const surgeTable = [0, 2, 4, 7, 10, 14];
     const surge = surgeTable[Math.min(surgeTable.length - 1, this.ranks.pearl_surge)] ?? 0;
     return 6 + this.stageClearBonusPearls + this.collectedOrbPearls + surge;
+  }
+
+  private bumpPearlFloor(): void {
+    this.pearlFloorClear = Math.max(this.pearlFloorClear, this.stageClearBonusPearls);
+    this.pearlFloorOrbs = Math.max(this.pearlFloorOrbs, this.collectedOrbPearls);
   }
 
   public getCurrentPearlDamage(): number {
@@ -2211,6 +2232,7 @@ export class KintsugiCanvasEngine {
     this.fastForward = false;
     if (isConstellationStage(this.stage)) {
       this.stageClearBonusPearls += 1;
+      this.bumpPearlFloor();
     }
     sound.playActComplete();
 
