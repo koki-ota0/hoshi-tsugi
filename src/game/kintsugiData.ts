@@ -17,6 +17,7 @@ export {
   magnitudeOf,
   SEASON_PLATE,
   CAMPAIGN_LENGTH,
+  atlasFigure,
 } from './constellations';
 
 export type AbilityId =

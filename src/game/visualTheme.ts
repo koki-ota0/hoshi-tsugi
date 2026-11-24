@@ -140,7 +140,7 @@ export function toRoman(n: number): string {
 }
 
 export function stageCaption(stage: number, _theme?: VisualTheme): string {
-  return `NOX ${toRoman(stage)}`;
+  return `第${stage}図`;
 }
 
 export function isVisualTheme(v: unknown): v is VisualTheme {
