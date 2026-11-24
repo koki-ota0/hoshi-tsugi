@@ -8,3 +8,11 @@ dist/
 !.env.example
 playtest-descent/
 playtest-bosses/
+android/.idea/
+android/app/build/
+android/build/
+android/local.properties
+android/.gradle/
+*.jks
+*.keystore
+keystore.properties

@@ -341,6 +341,7 @@ export class KintsugiCanvasEngine {
   private nextId = 1;
   private timeSec = 0;
   private rafId = 0;
+  private paused = false;
   private skin: CanvasSkin = SKIN;
 
   constructor(canvas: HTMLCanvasElement, callbacks: KintsugiCallbacks) {
@@ -429,6 +430,14 @@ export class KintsugiCanvasEngine {
   public toggleFastForward(): void {
     this.fastForward = !this.fastForward;
     this.emitHud();
+  }
+
+  public setPaused(paused: boolean): void {
+    this.paused = paused;
+  }
+
+  public isPaused(): boolean {
+    return this.paused;
   }
 
   public setTheme(_theme: VisualTheme): void {
@@ -1335,6 +1344,11 @@ export class KintsugiCanvasEngine {
   private startLoop(): void {
     let prev = performance.now();
     const step = (now: number) => {
+      if (this.paused) {
+        prev = now;
+        this.rafId = requestAnimationFrame(step);
+        return;
+      }
       const rawDt = Math.min(0.045, (now - prev) / 1000);
       prev = now;
       this.update(rawDt);

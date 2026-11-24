@@ -49,6 +49,19 @@ class KintsugiAudioEngine {
     this.ensure();
   }
 
+  /** アプリが裏に行ったとき。音を止める。 */
+  public duck(): void {
+    if (this.ctx && this.ctx.state === 'running') {
+      this.ctx.suspend().catch(() => {});
+    }
+  }
+
+  /** 表に戻ったとき。音がオンなら再開。 */
+  public unduck(): void {
+    if (!this.enabled) return;
+    this.ensure();
+  }
+
   public playThreadTick(stepIndex: number): void {
     const ctx = this.ensure();
     if (!ctx) return;

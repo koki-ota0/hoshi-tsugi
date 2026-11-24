@@ -23,10 +23,11 @@ import {
 } from '../game/kintsugiData';
 import { atlasFigure, magnitudeOf } from '../game/constellations';
 import { stageCaption } from '../game/visualTheme';
+import { noteStageClearedForAds } from '../native/ads';
 
 const RANK_MARKS = ['', '1', '2', '3', '4', '5'];
 
-type MenuView = 'home' | 'nights' | 'records';
+type MenuView = 'home' | 'nights' | 'records' | 'privacy';
 
 export class KintsugiApp {
   private root: HTMLElement;
@@ -49,6 +50,7 @@ export class KintsugiApp {
     this.mountEngine();
     this.applyTheme();
     this.renderMenu('home');
+    this.bindLifecycle();
 
     (window as unknown as Record<string, unknown>).__KINTSUGI__ = {
       app: this,
@@ -57,6 +59,34 @@ export class KintsugiApp {
     };
 
     window.addEventListener('resize', () => this.fitStage());
+  }
+
+  private bindLifecycle(): void {
+    const hide = () => {
+      this.engine.setPaused(true);
+      sound.duck();
+    };
+    const show = () => {
+      this.engine.setPaused(false);
+      if (this.record.soundOn) sound.unduck();
+    };
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) hide();
+      else show();
+    });
+    window.addEventListener('pagehide', hide);
+    window.addEventListener('pageshow', show);
+    void this.bindNativeLifecycle(hide, show);
+  }
+
+  private async bindNativeLifecycle(hide: () => void, show: () => void): Promise<void> {
+    try {
+      const mod = await import('@capacitor/app');
+      await mod.App.addListener('pause', hide);
+      await mod.App.addListener('resume', show);
+    } catch {
+      /* web 単体では Capacitor が無い */
+    }
   }
 
   private mountShell(): void {
@@ -272,6 +302,7 @@ export class KintsugiApp {
     saveRecord(this.record);
     if (result.newNight || result.newChain || result.newFigure) sound.playRecordBreak();
     this.renderClearToast(info, result);
+    noteStageClearedForAds();
   }
 
   private fitStage(): void {
@@ -441,6 +472,7 @@ export class KintsugiApp {
     this.run = loadRun();
     if (view === 'nights') this.renderNightSelect();
     else if (view === 'records') this.renderRecords();
+    else if (view === 'privacy') this.renderPrivacy();
     else this.renderHome();
     requestAnimationFrame(() => this.fitStage());
   }
@@ -468,6 +500,7 @@ export class KintsugiApp {
           ${cont}
           <button class="home-link dim" id="btn-nights" data-testid="btn-nights">図譜</button>
           <button class="home-link dim" id="btn-records">記録</button>
+          <button class="home-link dim privacy-link" id="btn-privacy">プライバシー</button>
         </div>
       </div>
     `);
@@ -486,6 +519,33 @@ export class KintsugiApp {
       sound.playThreadTick(4);
       this.renderMenu('records');
     });
+    this.frame.querySelector('#btn-privacy')?.addEventListener('click', () => {
+      sound.unlock();
+      sound.playThreadTick(1);
+      this.renderMenu('privacy');
+    });
+  }
+
+  private renderPrivacy(): void {
+    this.renderMenuHost(`
+      <div class="menu-sheet" data-testid="privacy-sheet">
+        <div class="menu-head">
+          <button class="text-back" id="btn-back-home">図</button>
+          <div class="menu-title">プライバシー</div>
+          <div class="menu-spacer"></div>
+        </div>
+        <p class="menu-lead">星継はいま、端末の中だけに記録を置きます。アカウントは作りません。</p>
+        <div class="record-list privacy-points">
+          <div><span>保存</span><strong>端末内のみ</strong></div>
+          <div><span>通信</span><strong>ゲーム本体はしない</strong></div>
+          <div><span>広告</span><strong>未搭載（予定）</strong></div>
+          <div><span>子ども向け</span><strong>対象外</strong></div>
+        </div>
+        <p class="menu-lead">Google Play 公開後、広告（AdMob）を入れるときは、広告 ID と同意画面を追加し、この文面を更新します。全文はアプリ同梱の privacy.html とストアのポリシー URL に置きます。</p>
+        <a class="home-link dim" href="./privacy.html" target="_blank" rel="noopener">全文を開く</a>
+      </div>
+    `);
+    this.frame.querySelector('#btn-back-home')?.addEventListener('click', () => this.renderMenu('home'));
   }
 
   private renderNightSelect(): void {
