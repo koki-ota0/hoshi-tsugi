@@ -851,14 +851,14 @@ export class KintsugiCanvasEngine {
       .edges.filter(([a, b]) => ids[a] && ids[b])
       .map(([a, b]) => [ids[a], ids[b]]);
 
-    this.addSealStone(0.06, 0.3);
-    this.addSealStone(0.94, 0.3);
+    this.addEclipseStone(0.06, 0.3);
+    this.addEclipseStone(0.94, 0.3);
     if (bp.stage >= 5) {
-      this.addSealStone(0.06, 0.62);
-      this.addSealStone(0.94, 0.62);
+      this.addEclipseStone(0.06, 0.62);
+      this.addEclipseStone(0.94, 0.62);
     }
     if (bp.stage >= 11) {
-      this.addSealStone(0.5, 0.08);
+      this.addEclipseStone(0.5, 0.08);
     }
 
     this.addOrb(TABLET_W * 0.18, 310, 1);
@@ -907,7 +907,7 @@ export class KintsugiCanvasEngine {
     });
   }
 
-  private addSealStone(nx: number, ny: number): void {
+  private addEclipseStone(nx: number, ny: number): void {
     const p = this.mapStar(nx, ny);
     if (this.vessels.some((v) => Math.hypot(v.x - p.x, v.y - p.y) < 40)) return;
     this.addVessel(p.x, p.y, 999, 'OCTAGON', false, true, 0, true, true);
@@ -3582,7 +3582,7 @@ export class KintsugiCanvasEngine {
     ctx.textBaseline = 'middle';
     if (sealed) {
       ctx.font = this.font('600', 13, false);
-      ctx.fillText('封', 0, 0.5);
+      ctx.fillText('蝕', 0, 0.5);
     } else {
       const n = `${v.hp}`;
       ctx.font = this.font('600', n.length >= 3 ? 11 : n.length >= 2 ? 13 : 15, false);
