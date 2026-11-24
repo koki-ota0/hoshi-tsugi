@@ -285,6 +285,72 @@ async function main(): Promise<void> {
         }
       },
     },
+    {
+      name: '14-steps-terrace',
+      frames: 72,
+      setup: () => {
+        engine.beginRun(4, false);
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.54;
+      },
+      tick: (i) => {
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.5 - Math.sin(i / 9) * 0.2;
+        if (i === 16) shoot();
+      },
+    },
+    {
+      name: '15-wings-volley',
+      frames: 64,
+      setup: () => {
+        engine.beginRun(2, false);
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.62;
+      },
+      tick: (i) => {
+        if (i === 12) shoot();
+      },
+    },
+    {
+      name: '16-cluster-vermilion',
+      frames: 68,
+      setup: () => {
+        engine.beginRun(5, false);
+        shoot();
+      },
+    },
+    {
+      name: '17-orbit-drift',
+      frames: 80,
+      setup: () => {
+        engine.beginRun(10, false);
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.48;
+      },
+      tick: (i) => {
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.5 + Math.sin(i / 10) * 0.24;
+        if (i === 22) shoot();
+      },
+    },
+    {
+      name: '18-bastion-armor',
+      frames: 72,
+      setup: () => {
+        engine.beginRun(8, false);
+        shoot();
+      },
+    },
+    {
+      name: '19-constellation-field',
+      frames: 76,
+      setup: () => {
+        engine.beginRun(9, false);
+        (engine as unknown as { isDrawingThread: boolean }).isDrawingThread = true;
+        (engine as unknown as { aimAngle: number }).aimAngle = -Math.PI * 0.5;
+      },
+      tick: (i) => {
+        if (i === 14) shoot();
+      },
+    },
   ];
 
   let now = 0;
@@ -347,6 +413,27 @@ async function main(): Promise<void> {
       '780x780+0+180'
     );
   }
+  if (fs.existsSync(path.join(outDir, '14-steps-terrace.webp'))) {
+    cropAnim(
+      path.join(outDir, '14-steps-terrace.webp'),
+      path.join(outDir, '20-close-steps.webp'),
+      '780x780+0+80'
+    );
+  }
+  if (fs.existsSync(path.join(outDir, '19-constellation-field.webp'))) {
+    cropAnim(
+      path.join(outDir, '19-constellation-field.webp'),
+      path.join(outDir, '21-close-obstacles.webp'),
+      '780x780+0+80'
+    );
+  }
+  if (fs.existsSync(path.join(outDir, '17-orbit-drift.webp'))) {
+    cropAnim(
+      path.join(outDir, '17-orbit-drift.webp'),
+      path.join(outDir, '22-square-orbit.webp'),
+      '780x780+0+270'
+    );
+  }
 
   fs.writeFileSync(
     path.join(outDir, 'SHOTLIST.md'),
@@ -369,6 +456,15 @@ Playfield captures of 星継 for later SNS edit. Source is the live engine (atla
 | 11-combo-confirm.webp | 正面・コンボ確定（等級輪） |
 | 12-close-vessels.webp | 寄り・器の材質 |
 | 13-close-combo.webp | 寄り・コンボ確定演出 |
+| 14-steps-terrace.webp | 正面・段丘（図譜と同じ 4-5-6） |
+| 15-wings-volley.webp | 正面・双翼を放つ |
+| 16-cluster-vermilion.webp | 正面・朱叢 |
+| 17-orbit-drift.webp | 正面・回廊（流れる器） |
+| 18-bastion-armor.webp | 正面・砦の装甲 |
+| 19-constellation-field.webp | 正面・星座と周囲の障害 |
+| 20-close-steps.webp | 寄り・段丘の段 |
+| 21-close-obstacles.webp | 寄り・星とハッチの障害 |
+| 22-square-orbit.webp | 正方形・回廊 |
 
 20 fps WebP. Re-run: \`npx tsx scripts/record-demo.ts\`
 `
