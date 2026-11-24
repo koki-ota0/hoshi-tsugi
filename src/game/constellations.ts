@@ -111,6 +111,26 @@ interface Recipe {
   field?: StarSpec[];
 }
 
+function sparseField(): StarSpec[] {
+  const field: StarSpec[] = [];
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + 0.22;
+    const rad = 0.2 + (i % 2) * 0.17;
+    field.push({
+      x: 0.5 + Math.cos(a) * rad,
+      y: 0.48 + Math.sin(a) * rad * 0.92,
+      armored: i % 3 === 0,
+      vermilion: i % 5 === 2,
+      drift: i % 2 === 0 ? 16 * (i % 4 === 0 ? 1 : -1) : 0,
+    });
+  }
+  field.push({ x: 0.08, y: 0.12, armored: true });
+  field.push({ x: 0.92, y: 0.12, armored: true });
+  field.push({ x: 0.1, y: 0.86, vermilion: true });
+  field.push({ x: 0.9, y: 0.86 });
+  return field;
+}
+
 function bake(r: Recipe): { stars: StarSpec[]; edges: Array<[number, number]>; field?: StarSpec[] } {
   if (r.k === 'custom') {
     return { stars: r.stars ?? [], edges: r.edges ?? [], field: r.field };
@@ -183,7 +203,7 @@ function bake(r: Recipe): { stars: StarSpec[]; edges: Array<[number, number]>; f
       });
       if (i) edges.push([i - 1, i]);
     }
-    return { stars, edges };
+    return { stars, edges, field: n <= 4 ? sparseField() : undefined };
   }
   if (r.k === 'hook') {
     return {
@@ -221,7 +241,7 @@ function bake(r: Recipe): { stars: StarSpec[]; edges: Array<[number, number]>; f
       });
       edges.push([i, (i + 1) % n]);
     }
-    return { stars, edges };
+    return { stars, edges, field: n <= 4 ? sparseField() : undefined };
   }
   if (r.k === 'cluster') {
     const n = r.n ?? 6;

@@ -188,25 +188,31 @@ export class KintsugiApp {
     return pts.join(' ');
   }
 
-  private figureSvg(stage: number, w: number, h: number, cls = 'night-glyph'): string {
+  private figureSvg(stage: number, w: number, h: number, cls = 'night-glyph', animate = false): string {
     const fig = atlasFigure(stage);
-    const pad = 8;
+    const pad = 10;
     const iw = w - pad * 2;
     const ih = h - pad * 2;
     const x = (s: { x: number; y: number }) => pad + s.x * iw;
     const y = (s: { x: number; y: number }) => pad + s.y * ih;
     const lines = fig.edges
-      .map(([a, b]) => {
+      .map(([a, b], i) => {
         const p = fig.stars[a];
         const q = fig.stars[b];
         if (!p || !q) return '';
-        return `<line x1="${x(p).toFixed(1)}" y1="${y(p).toFixed(1)}" x2="${x(q).toFixed(1)}" y2="${y(q).toFixed(1)}" />`;
+        const anim = animate
+          ? `stroke-dasharray="160" stroke-dashoffset="160" style="animation:stitch-draw 0.9s ease ${0.12 + i * 0.08}s forwards"`
+          : '';
+        return `<line x1="${x(p).toFixed(1)}" y1="${y(p).toFixed(1)}" x2="${x(q).toFixed(1)}" y2="${y(q).toFixed(1)}" stroke="#8a6a2e" stroke-width="1.45" stroke-linecap="round" fill="none" ${anim}/>`;
       })
       .join('');
     const dots = fig.stars
-      .map((s) => `<polygon points="${this.starPoly(x(s), y(s), 3.1)}" />`)
+      .map((s, i) => {
+        const pop = animate ? `style="animation:star-pop 0.35s ease ${0.35 + i * 0.05}s both"` : '';
+        return `<polygon points="${this.starPoly(x(s), y(s), cls === 'night-glyph' ? 3.4 : 4.6)}" fill="#2c2416" ${pop}/>`;
+      })
       .join('');
-    return `<svg class="${cls}" viewBox="0 0 ${w} ${h}" aria-hidden="true">${lines}${dots}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" class="${cls}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="#f4eee0" stroke="#8a6a2e" stroke-width="0.7"/>${lines}${dots}</svg>`;
   }
 
   private goHome(saveIfPlaying: boolean): void {
@@ -498,7 +504,7 @@ export class KintsugiApp {
       const kicker = grand ? '大ボス' : mid ? '中ボス' : bp.archetype === 'CONSTELLATION' ? '星座' : '';
       blocks.push(`
         <button class="${cls}" data-night="${n}" ${open ? '' : 'disabled'} data-testid="night-${n}">
-          ${cleared ? this.figureSvg(n, 140, 78) : '<span class="night-glyph-empty"></span>'}
+          ${cleared ? this.figureSvg(n, 156, 92) : '<span class="night-glyph-empty"></span>'}
           <em>${this.cap(n)}</em>
           <strong>${open ? bp.title : '—'}</strong>
           <span>${kicker}</span>
@@ -507,6 +513,12 @@ export class KintsugiApp {
       `);
     }
 
+    const latest = this.record.highestCleared;
+    const latestBp = latest > 0 ? getStageBlueprint(latest) : null;
+    const hero = latestBp
+      ? `<div class="atlas-hero">${this.figureSvg(latest, 280, 150, 'hero-glyph')}<div class="atlas-hero-cap">${this.cap(latest)}　${latestBp.title}</div></div>`
+      : '';
+
     this.renderMenuHost(`
       <div class="menu-sheet" data-testid="night-select">
         <div class="menu-head">
@@ -514,7 +526,8 @@ export class KintsugiApp {
           <div class="menu-title">図譜</div>
           <div class="menu-spacer"></div>
         </div>
-        <p class="menu-lead">幾何の図を縫い、三つめに星座が降りる。星座を継ぐたび、持ち星が増える。</p>
+        <p class="menu-lead">縫い終わった図だけ、星の形が残る。</p>
+        ${hero}
         <div class="night-grid atlas-index">${blocks.join('')}</div>
       </div>
     `);
@@ -588,18 +601,18 @@ export class KintsugiApp {
     host.innerHTML = `
       <div class="clear-toast" id="clear-toast" data-testid="clear-toast">
         <div class="clear-card atlas-clear">
-          <div class="clear-kicker">${this.cap(info.stage)}${plate ? `  ·  ${plate.jp}` : ''}</div>
+          <div class="clear-kicker">${this.cap(info.stage)}${plate ? `　${plate.jp}` : ''}</div>
+          <div class="clear-seal">${info.isBoss ? '核を割った' : '縫い上がった'}</div>
           <div class="clear-title">${info.title}</div>
-          ${this.figureSvg(info.stage, 220, 120, 'clear-glyph')}
-          <div class="clear-lucida">${info.isBoss ? '核を割った' : '縫った'}</div>
+          ${this.figureSvg(info.stage, 248, 148, 'clear-glyph', true)}
           <div class="clear-stamps">${stamps}</div>
           <div class="clear-metrics">
-            <div>等級<strong>${mag.jp}</strong></div>
-            <div>結星<strong>${info.chain}</strong></div>
-            <div>星<strong>×${info.pearlCount}</strong></div>
+            <div><span>等級</span><strong>${mag.jp}</strong></div>
+            <div class="chain-pop"><span>結星</span><strong>${info.chain}</strong></div>
+            <div><span>星</span><strong>×${info.pearlCount}</strong></div>
           </div>
           <div class="clear-metrics slim">
-            <div>この星座の最高<strong>${result.figureBest}</strong></div>
+            <div>この図の最高<strong>${result.figureBest}</strong></div>
             <div>通算最高<strong>${this.record.longestResonance}</strong></div>
             <div>順位<strong>${result.rank}<em>/${result.total}</em></strong></div>
           </div>
