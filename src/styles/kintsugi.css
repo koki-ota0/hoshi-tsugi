@@ -899,6 +899,19 @@ body {
   margin-top: 4px;
 }
 
+.clear-wound {
+  margin: 10px 0 2px;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: var(--cinnabar);
+}
+.clear-wound.quiet {
+  color: var(--ink);
+  opacity: 0.55;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+}
+
 .clear-stamps {
   min-height: 22px;
   margin: 10px 0 6px;

@@ -245,17 +245,14 @@ export function constellationClearsBefore(stage: number): number {
   return Math.max(0, Math.floor((Math.max(1, stage) - 1) / 3));
 }
 
-function stageInflation(stage: number): number {
-  return Math.pow(1.21, Math.max(0, stage - 1));
-}
-
-/** 珠の傷。耐久は同じ倍率で伸び、標準の星は常に6発。 */
+/** 傷はゆっくり段で上がる。耐久は傷に追従し、一発では盤が空かない。 */
 export function stagePearlDamage(stage: number): number {
-  return Math.max(1, Math.round(stageInflation(stage)));
+  if (stage <= 4) return 1;
+  return 1 + Math.floor((stage - 2) / 3);
 }
 
 export function stageBaseHp(stage: number): number {
-  return Math.max(4, stagePearlDamage(stage) * 6);
+  return stagePearlDamage(stage) * (8 + Math.ceil(stage / 2));
 }
 
 export function getStageBlueprint(stage: number): StageBlueprint {
@@ -274,7 +271,7 @@ export function getStageBlueprint(stage: number): StageBlueprint {
       archetype: 'GUARDIAN_BOSS',
       tier: 'grand',
       geometry: null,
-      baseHp: raw,
+      baseHp: Math.round(raw * 1.5),
     };
   }
 
@@ -291,7 +288,7 @@ export function getStageBlueprint(stage: number): StageBlueprint {
       archetype: 'CONSTELLATION',
       tier: mid ? 'mid' : 'normal',
       geometry: null,
-      baseHp: Math.round(raw * (mid ? 1.28 : 1.08)),
+      baseHp: Math.round(raw * (mid ? 1.22 : 1.12)),
     };
   }
 
@@ -307,7 +304,7 @@ export function getStageBlueprint(stage: number): StageBlueprint {
     archetype: 'GEOMETRY',
     tier: 'normal',
     geometry: kind,
-    baseHp: Math.round(raw * 0.88),
+    baseHp: raw,
   };
 }
 
@@ -359,6 +356,8 @@ export interface StageClearInfo {
   pearlCount: number;
   chain: number;
   longestChain: number;
+  pearlDamage: number;
+  nextPearlDamage: number;
 }
 
 const STORAGE_KEY = 'hoshitsugi_kintsugi_record_v5';

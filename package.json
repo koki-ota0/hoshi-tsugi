@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "demo": "tsx scripts/record-demo.ts",
-    "sim": "tsx scripts/balance-sim.ts",
+    "sim": "tsx scripts/clear-check.ts",
     "playtest": "tsx scripts/playwright-playtest.ts"
   },
   "devDependencies": {

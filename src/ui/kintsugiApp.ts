@@ -609,6 +609,11 @@ export class KintsugiApp {
             <div class="chain-pop"><span>結星</span><strong>${info.chain}</strong></div>
             <div><span>星</span><strong>×${info.pearlCount}</strong></div>
           </div>
+          ${
+            info.nextPearlDamage > info.pearlDamage
+              ? `<div class="clear-wound">傷 ${info.pearlDamage} → ${info.nextPearlDamage}</div>`
+              : ''
+          }
           <div class="clear-metrics slim">
             <div>この図の最高<strong>${result.figureBest}</strong></div>
             <div>通算最高<strong>${this.record.longestResonance}</strong></div>

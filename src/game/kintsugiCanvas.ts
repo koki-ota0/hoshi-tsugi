@@ -30,7 +30,7 @@ export const TABLET_W = 390;
 export const TABLET_H = 660;
 const CRADLE_Y = 596;
 const SEAL_LINE_Y = 552;
-const TURN_DESCENT_Y = 46;
+const TURN_DESCENT_Y = 28;
 const BOSS_DESCENT_Y = 34;
 const MAX_PEARLS = 200;
 
@@ -669,7 +669,7 @@ export class KintsugiCanvasEngine {
     const ids: number[] = [];
     fig.stars.forEach((star) => {
       const p = this.mapStar(star.x, star.y);
-      const hp = Math.round(bp.baseHp * (star.armored ? 1.7 : star.vermilion ? 0.55 : 1));
+      const hp = Math.round(bp.baseHp * (star.armored ? 1.7 : star.vermilion ? 0.8 : 1));
       this.addVessel(
         p.x,
         p.y,
@@ -692,7 +692,7 @@ export class KintsugiCanvasEngine {
       this.addVessel(
         p.x,
         p.y,
-        Math.max(3, Math.round(bp.baseHp * 0.7)),
+        Math.max(3, Math.round(bp.baseHp * 0.9)),
         extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'HEXAGON',
         Boolean(extra.vermilion),
         Boolean(extra.armored),
@@ -726,7 +726,7 @@ export class KintsugiCanvasEngine {
         this.addVessel(
           p.x,
           p.y,
-          Math.max(3, Math.round(bp.baseHp * (extra.armored ? 1.1 : 0.65))),
+          Math.max(3, Math.round(bp.baseHp * (extra.armored ? 1.15 : 0.85))),
           extra.vermilion ? 'DIAMOND' : extra.armored ? 'OCTAGON' : 'HEXAGON',
           Boolean(extra.vermilion),
           Boolean(extra.armored),
@@ -837,7 +837,7 @@ export class KintsugiCanvasEngine {
       this.addVessel(
         p.x,
         p.y,
-        Math.round(bp.baseHp * (star.hpMul ?? 1) * (vermilion ? 0.55 : 1)),
+        Math.round(bp.baseHp * (star.hpMul ?? 1) * (vermilion ? 0.8 : 1)),
         shape,
         vermilion,
         armored,
@@ -2261,6 +2261,8 @@ export class KintsugiCanvasEngine {
       pearlCount: this.getBasePearlCount(),
       chain: this.chainCount,
       longestChain: this.longestChainInRun,
+      pearlDamage: stagePearlDamage(this.stage),
+      nextPearlDamage: stagePearlDamage(this.stage + 1),
     });
     this.emitHud();
   }
